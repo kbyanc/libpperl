@@ -11,6 +11,7 @@
 
 #include <sys/types.h>
 #include <sys/queue.h>
+#include <sys/sbuf.h>
 #include <sys/stat.h>
 
 #include <assert.h>
@@ -104,7 +105,7 @@ struct perlcode {
 
 
 
-EXTERN_C void	 xs_init _((pTHX));
+EXTERN_C void	 xs_init _((void));
 
 static void	 ntt_pperl_setvars(const char *procname, const char **envp);
 static SV	*ntt_pperl_eval(SV *code_sv, const char *name,
@@ -124,11 +125,17 @@ static XS(XS_ntt_pperl_exit);
  *	Initializes a new perl interpreter for executing perl code in a
  *	persistent environment.
  *
+ *	@param	flags		Bitwise-OR of flags indicating behaviour of
+ *				the new interpreter.  Corelate directly to
+ *				various perl command-line options.
+ *				\see ntt_pperl_newflags in pperl.h.
+ *
  *	@return	Handle for referring to the new persistent perl interpreter.
  */
 perlinterp_t
-ntt_pperl_new(void)
+ntt_pperl_new(enum ntt_pperl_newflags flags)
 {
+	struct sbuf opt_sb;
 	perlinterp_t interp;
 	char **argv;
 	PerlInterpreter *perl;
@@ -140,6 +147,45 @@ ntt_pperl_new(void)
 	assert(PERL_REVISION == 5 && PERL_VERSION >= 8 && PERL_SUBVERSION >= 4);
 
 	/*
+	 * Convert flags into command-line options for perl_parse() as this
+	 * is the only public API perl provides for toggling these features.
+	 */
+	sbuf_new(&opt_sb, NULL, 32, SBUF_AUTOEXTEND);
+
+	switch (flags & _WARNINGS_MASK) {
+	case WARNINGS_ENABLE:		sbuf_cat(&opt_sb, "-w "); break;
+	case WARNINGS_FORCE_ALL:	sbuf_cat(&opt_sb, "-W "); break;
+	case WARNINGS_FORCE_NONE:	sbuf_cat(&opt_sb, "-X "); break;
+	default:			;
+	}
+
+	switch (flags & _TAINT_MASK) {
+	case TAINT_WARN:		sbuf_cat(&opt_sb, "-t "); break;
+	case TAINT_FATAL:		sbuf_cat(&opt_sb, "-T "); break;
+	default:			;
+	}
+
+	/*
+	 * Have perl run a no-op script for now.
+	 */
+	sbuf_cat(&opt_sb, "-e;0 ");
+
+	/*
+	 * Parse Unicode-related options.  perl_parse() requires -C... to be
+	 * the final command-line argument so this is done last.
+	 */
+#define OPTIONFLAG(mask, str)	if ((flags & mask) != 0) sbuf_cat(&opt_sb, str)
+	OPTIONFLAG(_UNICODE_MASK,	  "-C");
+	OPTIONFLAG(UNICODE_STDIN,	   "I");
+	OPTIONFLAG(UNICODE_STDOUT,	   "O");
+	OPTIONFLAG(UNICODE_INPUT_DEFAULT,  "i");
+	OPTIONFLAG(UNICODE_OUTPUT_DEFAULT, "o");
+	OPTIONFLAG(UNICODE_ARGV,	   "A");
+#undef OPTIONFLAG
+
+	sbuf_finish(&opt_sb);
+
+	/*
 	 * Contrary to what examples there are of using an embedded perl
 	 * interpreter, we have to allocate the synthesized argv array we
 	 * pass to perl_parse() on the heap (rather than on the stack).
@@ -147,8 +193,8 @@ ntt_pperl_new(void)
 	 * interpreter, the stack gets corrupted.
 	 */
 	argv = malloc(2 * sizeof(char *));
-	argv[1] = strdup("-e;0");
-	argv[0] = strchr(argv[1], '\0');	/* "" */
+	argv[1] = sbuf_data(&opt_sb);		/* command-line options. */
+	argv[0] = argv[1] + sbuf_len(&opt_sb);	/* "" */
 
 	PL_perl_destruct_level = 2;
 
@@ -257,9 +303,98 @@ ntt_pperl_destroy(perlinterp_t *interpp)
 	/*
 	 * Free memory allocated to our interpreter bookkeeping data structure.
 	 */
-	free(interp->pi_alloc_argv[1]);		/* "-e;1" argument string. */
+	free(interp->pi_alloc_argv[1]);		/* "-e;0" argument string. */
 	free(interp->pi_alloc_argv);		/* argument vector itself. */
 	free(interp);
+}
+
+
+/*!
+ * ntt_pperl_incpath_add() - Add directories to perl's \@INC search path.
+ *
+ *	Adds additional directories to the head of perl's \@INC search path
+ *	similar to perl's -I command-line option.  Only a single path may be
+ *	added per call.
+ *
+ *	@param	interp		Interpreter to modify \@INC path in.
+ *
+ *	@param	path		The directory to add to the path.
+ *
+ *	@note	All code loaded into a single interpreter shares the same
+ *		global \@INC array.  That is, changes made by one piece of
+ *		code effect all other code loaded into the interpreter.  I
+ *		did not see any point in virtualizing \@INC (as we do for
+ *		\%ENV and \@ARGV) because any modules located via the \@INC
+ *		array are also shared by all code loaded into the interpreter.
+ */
+void
+ntt_pperl_incpath_add(perlinterp_t interp, const char *path)
+{
+	PerlInterpreter *orig_perl;
+	SV *path_sv;
+
+	orig_perl = PERL_GET_CONTEXT;
+	PERL_SET_CONTEXT(interp->pi_perl);
+
+	/*
+	 * Push the new path on the end of the @INC array.  The array is
+	 * scanned in reverse by perl, so this effectively puts the new
+	 * include at the head of the list (same as -I command-line option).
+	 */
+	path_sv = newSVpv(path, 0);
+	av_push(GvAVn(PL_incgv), path_sv);
+
+	PERL_SET_CONTEXT(orig_perl);
+}
+
+
+/*!
+ * ntt_pperl_load_module() - Load a perl module into the interpreter.
+ *
+ *	Loads the given perl module into the interpreter.  Equivilent to
+ *	the "require" perl command, complete with perl's module naming
+ *	semantics.
+ *
+ *	In general, loading code which requires a module will automatically
+ *	load that module as part of ntt_pperl_load(). As such, this routine
+ *	is only useful if arbitrary code is going to be loaded during the
+ *	program's lifetime and you want to speed ntt_pperl_load() by ensuring
+ *	any required modules are preloaded.  If you are going to load all of
+ *	your code when the program is started, then this routine gains you
+ *	nothing.
+ *
+ *	@param	interp		Perl interpreter to load module into.
+ *
+ *	@param	modulename	Name of perl module to load (e.g. "File::Sync").
+ */
+void
+ntt_pperl_load_module(perlinterp_t interp, const char *modulename)
+{
+	PerlInterpreter *orig_perl;
+
+	orig_perl = PERL_GET_CONTEXT;
+	PERL_SET_CONTEXT(interp->pi_perl);
+
+	/*
+	 * Despite perlapi(3)'s recommendation to use load_module() rather than
+	 * require_pv(), you cannot really do that as load_module() croaks if
+	 * a non-existent module is requested.  In practice, the only safe
+	 * thing to do is to evaluate the perl code "require Module" which is
+	 * exactly what require_pv() does.  mod_perl uses require_pv() too,
+	 * presumably for the same reason.
+	 */
+	require_pv(modulename);
+
+	if (SvTRUE(ERRSV)) {
+		/*
+		 * XXX Return error to caller.  It would be nice if we could
+		 *     postprocess the error messages to make them more useful.
+		 */
+		char *error = SvPVX(ERRSV);
+		fatal(EX_SOFTWARE, "perl: %s", error);
+	}
+
+	PERL_SET_CONTEXT(orig_perl);
 }
 
 
@@ -283,6 +418,15 @@ ntt_pperl_destroy(perlinterp_t *interpp)
 void
 ntt_pperl_setvars(const char *procname, const char **envp)
 {
+
+#if 0
+	/*
+	 * Reset one-time ?pattern? searches.
+	 * Note: ?pattern? searches are deprecated, so this is probably
+	 *	 unnecessary.
+	 */
+	sv_reset("", XXXstash);
+#endif
 
 	/*
 	 * Reset the $@ variable to indicate no error.
@@ -379,7 +523,7 @@ ntt_pperl_setvars(const char *procname, const char **envp)
  *
  *	@param	envp		environ(7) style NULL-terminated array of
  *				environment variables which will appear as
- *				%ENV to any perl code run as part of the
+ *				\%ENV to any perl code run as part of the
  *				evaluation process.  NULL may be passed as
  *				the \a envp argument to indicate an empty 
  *                              environment.
@@ -476,7 +620,7 @@ ntt_pperl_eval(SV *code_sv, const char *name, const char **envp)
  *
  *	@param	envp		environ(7) style NULL-terminated array of
  *                              environment variables which will appear as
- *                              %ENV to any BEGIN, CHECK, or INIT blocks
+ *                              \%ENV to any BEGIN, CHECK, or INIT blocks
  *                              which execute as part of the compilation step.
  *				This does not have to be the same as the
  *				calling process's environment nor does the same
@@ -578,7 +722,7 @@ ntt_pperl_load(perlinterp_t interp, const char *name, const char **envp,
 /*!
  * ntt_pperl_run() - Execute loaded perl code.
  *
- *	Runs code loaded via ntt_pperl_load() with @ARGV and %ENV populated
+ *	Runs code loaded via ntt_pperl_load() with \@ARGV and \%ENV populated
  *	from the values passed via \a argc, \a argv, and \a envp..
  *
  *	@param	pc		The perl code to run.
@@ -589,20 +733,22 @@ ntt_pperl_load(perlinterp_t interp, const char *name, const char **envp,
  *	@param	argv		Array of strings to pass as command-line
  *				parameters when running the code.  These are
  *				mapped directly to the coresponding positions
- *				in the @ARGV array visible from the perl.  This
- *				is not the same as execv(3)'s \a argv list's
- *				semantics.  NULL may be passed as the \a argv
- *				argument if \a argc is 0.
+ *				in the \@ARGV array visible from the perl.
+ *				This is not the same as execv(3)'s \a argv
+ *				list's semantics.  NULL may be passed as the
+ *				\a argv argument if \a argc is 0.
  *
  *	@param	envp		environ(7) style NULL-terminated array of
  *				environment variables which will appear as
- *				%ENV to the running perl code.  NULL may be
+ *				\%ENV to the running perl code.  NULL may be
  *				passed as the \a envp argument to indicate an
  *				empty environment.
  */
 void
-ntt_pperl_run(perlcode_t pc, int argc, const char **argv, const char **envp)
+ntt_pperl_run(const perlcode_t pc, int argc, const char **argv,
+	      const char **envp)
 {
+	const perlinterp_t interp = pc->pc_interp;
 	PerlInterpreter *orig_perl;
 	dSP;
 
@@ -613,7 +759,7 @@ ntt_pperl_run(perlcode_t pc, int argc, const char **argv, const char **envp)
 	 * copy initialized by dSP refers to the original interpreter's stack.
 	 */
 	orig_perl = PERL_GET_CONTEXT;
-	PERL_SET_CONTEXT(pc->pc_interp->pi_perl);
+	PERL_SET_CONTEXT(interp->pi_perl);
 	SPAGAIN;
 
 	ENTER;
@@ -625,7 +771,9 @@ ntt_pperl_run(perlcode_t pc, int argc, const char **argv, const char **envp)
 	 * Convert argument vector to perl @ARGV array.
 	 */
 	{
-		AV *perlargv = get_av("ARGV", TRUE);
+		AV *perlargv;
+
+		perlargv = get_av("ARGV", TRUE);
 		av_clear(perlargv);
 
 		while (argc-- > 0) {
