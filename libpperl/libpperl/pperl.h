@@ -45,6 +45,8 @@
 
 
 typedef struct perlinterp *perlinterp_t;
+typedef struct perlenv *perlenv_t;
+typedef struct perlargs *perlargs_t;
 typedef struct perlcode *perlcode_t;
 
 
@@ -85,22 +87,40 @@ enum ntt_pperl_newflags {
 
 __BEGIN_DECLS
 
-
 extern perlinterp_t	 ntt_pperl_new(enum ntt_pperl_newflags flags);
 extern void		 ntt_pperl_destroy(perlinterp_t *interpp);
+
+
+extern perlenv_t	 ntt_pperl_env_new(perlinterp_t interp, bool tainted,
+					   int envc, const char **envp);
+extern void		 ntt_pperl_env_set(perlenv_t penv, const char *name,
+					   const char *value);
+extern const char	*ntt_pperl_env_get(const perlenv_t penv,
+					   const char *name);
+extern void		 ntt_pperl_env_unset(perlenv_t penv, const char *name);
+extern void		 ntt_pperl_env_destroy(perlenv_t *penvp);
+
+
+extern perlargs_t	 ntt_pperl_args_new(perlinterp_t interp, bool tainted,
+					    int argc, const char **argv);
+extern void		 ntt_pperl_args_append(perlargs_t pargs,
+					       const char *arg);
+extern void		 ntt_pperl_args_destroy(perlargs_t *pargsp);
+
 
 extern void		 ntt_pperl_incpath_add(perlinterp_t interp,
 					       const char *path);
 
 extern void		 ntt_pperl_load_module(perlinterp_t interp,
-					       const char *modulename);
+					       const char *modulename,
+					       perlenv_t penv);
+
 
 extern perlcode_t	 ntt_pperl_load(perlinterp_t interp,
-					const char *name, const char **envp,
+					const char *name, perlenv_t penv,
 					const char *code, size_t codelen);
-extern void		 ntt_pperl_run(const perlcode_t pc,
-				       int argc, const char **argv,
-				       const char **envp);
+extern void		 ntt_pperl_run(perlcode_t pc, perlargs_t pargs,
+				       perlenv_t penv);
 extern void		 ntt_pperl_unload(perlcode_t *pcp);
 
 __END_DECLS

@@ -12,10 +12,8 @@
 #include <sys/types.h>
 #include <sys/queue.h>
 #include <sys/sbuf.h>
-#include <sys/stat.h>
 
 #include <assert.h>
-#include <libgen.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -30,86 +28,14 @@
 
 #include "log.h"
 #include "pperl.h"
+#include "pperl_private.h"
 
 
-#define	PPERL_NAMESPACE	"NTTMCL::Persistent"
+EXTERN_C void	 xs_init _((void));			    /* perlxsi.c */
 
-
-/*!
- * @INTERNAL
- *
- * Data structure representing a persistent perl interpreter.
- *
- * Intended to abstract details of maintaining a persistent perl interpreter
- * so the caller does not need any of the detailed knowledge of perl that
- * would otherwise be required to perform even simple tasks with a persistent
- * per interpreter.
- *
- *	@var	pi_perl		The perl interpreter itself.
- *
- *	@var	pi_alloc_argv	Memory allocated to hold fake argv passed to
- *				perl_parse(); we have to allocate the fake argv
- *				array on the heap to avoid attempts to modify
- *				$0 from crashing the program.
- *
- *	@var	pi_code_head	Linked-list of perlcode structures so we can
- *				free them when ntt_pperl_destroy() is called.
- */
-struct perlinterp {
-	PerlInterpreter		 *pi_perl;
-	char			**pi_alloc_argv;
-	LIST_HEAD(, perlcode)	  pi_code_head;
-};
-
-
-/*!
- * @INTERNAL
- *
- * Data structure representing compiled perl code.
- *
- *	@var	pc_interp	Back-pointer to perl interpreter used to
- *				compile the code in.  We use this to ensure
- *				that we always execute the code in the same
- *				interpreter it was compiled in.  This allows
- *				the calling program to maintain multiple
- *				interpreter instances without having to jump
- *				through hoops to use them.
- *
- *	@var	pc_sv		Perl reference to the anonymous subroutine
- *				representing the compiled code.  See comments
- *				in ntt_pperl_compile() for details.
- *
- *	@var	pc_name		Name associated with the code.  This is used
- *				for reporting error messages and is the
- *				initial value of $0 when the code is executed.
- *
- *	@var	pc_pkgid	Unique number for identifying compiled code.
- *				This is used internally for creating a unique
- *				namespace for each piece of code compiled
- *				within a single interpreter.  See
- *				ntt_pperl_compile() for details.
- *
- *	@var	pc_pkgstash	Perl package code was compiled and executes in.
- *
- *	@var	pc_link		Link in linked list of perlcode structures
- *				associated with the compiling interpreter.
- */
-struct perlcode {
-	perlinterp_t		  pc_interp;
-	SV			 *pc_sv;
-	char			 *pc_name;
-	u_int			  pc_pkgid;
-	HV			 *pc_pkgstash;
-	LIST_ENTRY(perlcode)	  pc_link;
-};
-
-
-
-EXTERN_C void	 xs_init _((void));
-
-static void	 ntt_pperl_setvars(const char *procname, const char **envp);
+static void	 ntt_pperl_setvars(const char *procname);
 static SV	*ntt_pperl_eval(SV *code_sv, const char *name,
-				const char **envp);
+				const perlenv_t penv);
 static void	 ntt_pperl_calllist_run(AV *calllist, const HV *pkgstash);
 static void	 ntt_pperl_calllist_clear(AV *calllist, const HV *pkgstash);
 static XS(XS_ntt_pperl_exit);
@@ -210,7 +136,7 @@ ntt_pperl_new(enum ntt_pperl_newflags flags)
 	 * order to initialize the interpreter to a useable state.  As such,
 	 * we provide a null script using the command-line -e argument.
 	 */
-	if (perl_parse(perl, xs_init, 2, argv, NULL) != 0)
+	if (perl_parse(perl, xs_init, 2, argv, environ) != 0)
 		fatal(EX_UNAVAILABLE, "failed to initialize perl interpreter");
 
 	/*
@@ -250,7 +176,9 @@ ntt_pperl_new(enum ntt_pperl_newflags flags)
 
 	interp->pi_perl = perl;
 	interp->pi_alloc_argv = argv;
+	LIST_INIT(&interp->pi_args_head);
 	LIST_INIT(&interp->pi_code_head);
+	LIST_INIT(&interp->pi_env_head);
 
 	ntt_log(NTT_LOG_DEBUG, "perl interpreter initialized (%p)", interp);
 
@@ -273,11 +201,18 @@ ntt_pperl_destroy(perlinterp_t *interpp)
 {
 	perlinterp_t interp = *interpp;
 	perlcode_t code;
+	perlargs_t pargs;
+	perlenv_t penv;
+	PerlInterpreter *orig_perl;
 	PerlInterpreter *perl;
 
 	*interpp = NULL;
 
 	assert(interp != NULL);
+
+	perl = interp->pi_perl;
+	orig_perl = PERL_GET_CONTEXT;
+	PERL_SET_CONTEXT(perl);
 
 	while (!LIST_EMPTY(&interp->pi_code_head)) {
 		code = LIST_FIRST(&interp->pi_code_head);
@@ -293,7 +228,16 @@ ntt_pperl_destroy(perlinterp_t *interpp)
 		free(code);
 	}
 
-	perl = interp->pi_perl;
+	while (!LIST_EMPTY(&interp->pi_args_head)) {
+		pargs = LIST_FIRST(&interp->pi_args_head);
+		ntt_pperl_args_destroy(&pargs);
+	}
+
+	while (!LIST_EMPTY(&interp->pi_env_head)) {
+		penv = LIST_FIRST(&interp->pi_env_head);
+		ntt_pperl_env_destroy(&penv);
+	}
+
 	PL_exit_flags |= PERL_EXIT_DESTRUCT_END;
 	PL_perl_destruct_level = 2;
 
@@ -306,6 +250,8 @@ ntt_pperl_destroy(perlinterp_t *interpp)
 	free(interp->pi_alloc_argv[1]);		/* "-e;0" argument string. */
 	free(interp->pi_alloc_argv);		/* argument vector itself. */
 	free(interp);
+
+	PERL_SET_CONTEXT(orig_perl);
 }
 
 
@@ -366,24 +312,56 @@ ntt_pperl_incpath_add(perlinterp_t interp, const char *path)
  *	@param	interp		Perl interpreter to load module into.
  *
  *	@param	modulename	Name of perl module to load (e.g. "File::Sync").
+ *
+ *	@param	penv		Environment variable list to populate \%ENV
+ *				with while loading code.  This is primary for
+ *				the benefit of any BEGIN, CHECK, or INIT code
+ *				blocks that may run during load.
  */
 void
-ntt_pperl_load_module(perlinterp_t interp, const char *modulename)
+ntt_pperl_load_module(perlinterp_t interp, const char *modulename,
+		      perlenv_t penv)
 {
 	PerlInterpreter *orig_perl;
 
 	orig_perl = PERL_GET_CONTEXT;
 	PERL_SET_CONTEXT(interp->pi_perl);
 
+	ENTER;
+	SAVETMPS;
+
+	ntt_pperl_setvars(modulename);
+	ntt_pperl_env_populate(penv);
+
 	/*
-	 * Despite perlapi(3)'s recommendation to use load_module() rather than
-	 * require_pv(), you cannot really do that as load_module() croaks if
-	 * a non-existent module is requested.  In practice, the only safe
-	 * thing to do is to evaluate the perl code "require Module" which is
-	 * exactly what require_pv() does.  mod_perl uses require_pv() too,
-	 * presumably for the same reason.
+	 * What follows is almost identical to the implementation of perl's
+	 * require_pv() function except that it doesn't wrap the argument in
+	 * single quotes, thus allowing modules to be specified by name
+	 * (e.g. File::Spec).  This is identical to mod_perl's
+	 * modperl_require_module() function which should kill any doubt that
+	 * perl's embedded API sucks.
+	 *
+	 * We can't follow perlapi(3)'s recommendation to use load_module()
+	 * either as that API croaks if a non-existent module is requested.
+	 * In practice, the only safe thing to do is to evaluate the perl code
+	 * "require Module" which is exactly what we do...
 	 */
-	require_pv(modulename);
+	{
+		SV* sv;
+		dSP;
+
+		PUSHSTACKi(PERLSI_REQUIRE);
+		PUTBACK;
+		sv = sv_newmortal();
+		sv_setpv(sv, "require ");
+		sv_catpv(sv, modulename);
+		eval_sv(sv, G_DISCARD);
+		SPAGAIN;
+		POPSTACK;
+	}
+
+	FREETMPS;
+	LEAVE;
 
 	if (SvTRUE(ERRSV)) {
 		/*
@@ -408,25 +386,20 @@ ntt_pperl_load_module(perlinterp_t interp, const char *modulename)
  *				code; this appears in ps output as well as
  *				$0 to the running perl code.
  *
- *	@param	envp		environ(7) style NULL-terminated array of
- *				environment variables to use as the environment
- *				for the running perl code.  If NULL, the
- *				code is run with no environment variables set.
- *
  *	@note	Must be called within a perl ENTER/LEAVE block.
  */
 void
-ntt_pperl_setvars(const char *procname, const char **envp)
+ntt_pperl_setvars(const char *procname)
 {
 
-#if 0
 	/*
 	 * Reset one-time ?pattern? searches.
 	 * Note: ?pattern? searches are deprecated, so this is probably
 	 *	 unnecessary.
+	 * Note: perl's prototype for sv_reset is missing a const qualifier
+	 *	 for the first parameter even though it is constant.
 	 */
-	sv_reset("", XXXstash);
-#endif
+	sv_reset(ignoreconst(""), PL_defstash);
 
 	/*
 	 * Reset the $@ variable to indicate no error.
@@ -453,46 +426,6 @@ ntt_pperl_setvars(const char *procname, const char **envp)
 	{
 		GV *pid = gv_fetchpv("$", TRUE, SVt_PV);
 		sv_setiv(GvSV(pid), (I32)getpid());
-	}
-
-	/*
-	 * Populate %ENV with the given environment variables.  We localize
-	 * %ENV so that the original environment will be restored once the
-	 * perl code finishes executing (since the environment affects the
-	 * calling process too).  This allows the executing perl code to be
-	 * given a set of environment variables which it is free to manipulate
-	 * and which are passed to any subprocesses spawned from perl, but
-	 * ensures that the calling code's environment is left in its original
-	 * state.
-	 *
-	 * NB: perl manipulates the global environ variable so it is not
-	 *     thread-safe.
-	 */
-	{
-		GV *envhash_gv;
-		HV *envhash_hv;
-		SV *env_sv;
-
-		envhash_gv = gv_fetchpv("ENV", TRUE, SVt_PVHV);
-		envhash_hv = save_hash(envhash_gv);
-
-		while (envp != NULL && *envp != NULL) {
-			const char *key, *value;
-			size_t keylen;
-
-			key = *envp;
-			value = strchr(key, '=');
-			keylen = value - key;
-			value++;
-
-			/* Add elements to %ENV hash with 'envelem' magic. */
-			env_sv = newSVpv(value, 0);
-			sv_magic(env_sv, env_sv, PERL_MAGIC_envelem,
-				 key, keylen);
-			hv_store(envhash_hv, key, keylen, env_sv, 0);
-
-			envp++;
-		}
 	}
 }
 
@@ -521,17 +454,13 @@ ntt_pperl_setvars(const char *procname, const char **envp)
  *				from a file, it is recommended that the file
  *				name be passed as the \a name argument.
  *
- *	@param	envp		environ(7) style NULL-terminated array of
- *				environment variables which will appear as
- *				\%ENV to any perl code run as part of the
- *				evaluation process.  NULL may be passed as
- *				the \a envp argument to indicate an empty 
- *                              environment.
+ *	@param	penv		Environment variable list to populate \%ENV
+ *				with while evaluating the string.
  *
  *	@return	The result of the eval statement.
  */
 SV *
-ntt_pperl_eval(SV *code_sv, const char *name, const char **envp)
+ntt_pperl_eval(SV *code_sv, const char *name, perlenv_t penv)
 {
 	SV *anonsub;
 	HV *pkgstash;
@@ -544,7 +473,8 @@ ntt_pperl_eval(SV *code_sv, const char *name, const char **envp)
 	ENTER;
 	SAVETMPS;
 
-	ntt_pperl_setvars(name, envp);
+	ntt_pperl_setvars(name);
+	ntt_pperl_env_populate(penv);
 
 	PUSHMARK(SP);
 
@@ -618,16 +548,10 @@ ntt_pperl_eval(SV *code_sv, const char *name, const char **envp)
  *	@param	name		Text describing the code being loaded.  See
  *				explanation under ntt_pperl_eval().
  *
- *	@param	envp		environ(7) style NULL-terminated array of
- *                              environment variables which will appear as
- *                              \%ENV to any BEGIN, CHECK, or INIT blocks
- *                              which execute as part of the compilation step.
- *				This does not have to be the same as the
- *				calling process's environment nor does the same
- *				environment have to be passed to a later call
- *				to ntt_pperl_run().  NULL may be passed as
- *				the \a envp argument to indicate an empty
- *				environment.
+ *	@param	penv		Environment variable list to populate \%ENV
+ *				with while loading code.  This is primary for
+ *				the benefit of any BEGIN, CHECK, or INIT code
+ *				blocks that may run during load.
  *
  *	@param	code		The perl code to load.  Does not require a
  *				nul-terminator as the length is explicitely
@@ -637,7 +561,7 @@ ntt_pperl_eval(SV *code_sv, const char *name, const char **envp)
  *
  */
 perlcode_t
-ntt_pperl_load(perlinterp_t interp, const char *name, const char **envp,
+ntt_pperl_load(perlinterp_t interp, const char *name, perlenv_t penv,
 	       const char *code, size_t codelen)
 {
 	static u_int pkgid = 0;
@@ -682,11 +606,11 @@ ntt_pperl_load(perlinterp_t interp, const char *name, const char **envp,
 	 *	 mmap(2)'ed from a file).
 	 */
 	code_sv = newSV(codelen + 100);
-	sv_catpvf(code_sv, "package %s::p%08X; sub {\n",PPERL_NAMESPACE, pkgid);
+	sv_catpvf(code_sv, "package %s::_p%08X; sub {\n", PPERL_NAMESPACE, pkgid);
 	sv_catpvn(code_sv, code, codelen);
 	sv_catpv(code_sv, "\n}\n");
 
-	anonsub = ntt_pperl_eval(code_sv, name, envp);
+	anonsub = ntt_pperl_eval(code_sv, name, penv);
 	assert(anonsub != NULL);	/* XXXEXCEPTIONS */
 	{
 		SV *sv = SvRV(anonsub);
@@ -723,30 +647,20 @@ ntt_pperl_load(perlinterp_t interp, const char *name, const char **envp,
  * ntt_pperl_run() - Execute loaded perl code.
  *
  *	Runs code loaded via ntt_pperl_load() with \@ARGV and \%ENV populated
- *	from the values passed via \a argc, \a argv, and \a envp..
+ *	from the values passed via \a pargs and \a penv.
  *
  *	@param	pc		The perl code to run.
  *
- *	@param	argc		The number of elements in the \a argv argument
- *				array.
+ *	@param	pargs		Argument list to pass as the perl \@ARGV array
+ *				of command-line parameters when running the
+ *				code.  If NULL, perl's \@ARGV array will be
+ *				empty.
  *
- *	@param	argv		Array of strings to pass as command-line
- *				parameters when running the code.  These are
- *				mapped directly to the coresponding positions
- *				in the \@ARGV array visible from the perl.
- *				This is not the same as execv(3)'s \a argv
- *				list's semantics.  NULL may be passed as the
- *				\a argv argument if \a argc is 0.
- *
- *	@param	envp		environ(7) style NULL-terminated array of
- *				environment variables which will appear as
- *				\%ENV to the running perl code.  NULL may be
- *				passed as the \a envp argument to indicate an
- *				empty environment.
+ *	@param	penv		Environment variable list to populate \%ENV
+ *				with while running code.
  */
 void
-ntt_pperl_run(const perlcode_t pc, int argc, const char **argv,
-	      const char **envp)
+ntt_pperl_run(const perlcode_t pc, perlargs_t pargs, perlenv_t penv)
 {
 	const perlinterp_t interp = pc->pc_interp;
 	PerlInterpreter *orig_perl;
@@ -765,23 +679,9 @@ ntt_pperl_run(const perlcode_t pc, int argc, const char **argv,
 	ENTER;
 	SAVETMPS;
 
-	ntt_pperl_setvars(pc->pc_name, envp);
-
-	/*
-	 * Convert argument vector to perl @ARGV array.
-	 */
-	{
-		AV *perlargv;
-
-		perlargv = get_av("ARGV", TRUE);
-		av_clear(perlargv);
-
-		while (argc-- > 0) {
-			SV *arg_sv = newSVpv(*argv, 0);
-			av_push(perlargv, arg_sv);
-			argv++;
-		}
-	}
+	ntt_pperl_setvars(pc->pc_name);
+	ntt_pperl_env_populate(penv);
+	ntt_pperl_args_populate(pargs);
 
 	/*
 	 * Run the code.
@@ -976,7 +876,7 @@ ntt_pperl_unload(perlcode_t *pcp)
 	 * Run END blocks now.
 	 */
 	ENTER;
-	ntt_pperl_setvars(pc->pc_name, (const char **)NULL);
+	ntt_pperl_setvars(pc->pc_name);
 	ntt_pperl_calllist_run(PL_endav, pc->pc_pkgstash);
 	LEAVE;
 
