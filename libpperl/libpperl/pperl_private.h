@@ -30,7 +30,8 @@
 #define	PPERL_NAMESPACE "NTTMCL::Persistent"
 
 /*!
- * @INTERNAL
+ * @struct perlinterp
+ * @internal
  *
  * Data structure representing a persistent perl interpreter.
  *
@@ -39,20 +40,20 @@
  * would otherwise be required to perform even simple tasks with a persistent
  * per interpreter.
  *
- *	@var	pi_perl		The perl interpreter itself.
+ *	@param	pi_perl		The perl interpreter itself.
  *
- *	@var	pi_alloc_argv	Memory allocated to hold fake argv passed to
+ *	@param	pi_alloc_argv	Memory allocated to hold fake argv passed to
  *				perl_parse(); we have to allocate the fake argv
  *				array on the heap to avoid attempts to modify
  *				$0 from crashing the program.
  *
- *	@var	pi_args_head	Linked-list of perlargs structures so we can
+ *	@param	pi_args_head	Linked-list of perlargs structures so we can
  *				free them when ntt_pperl_destroy() is called.
  *
- *	@var	pi_code_head	Linked-list of perlcode structures so we can
+ *	@param	pi_code_head	Linked-list of perlcode structures so we can
  *				free them when ntt_pperl_destroy() is called.
  *
- *	@var	pi_env_head	Linked-list of perlenv structures so we can
+ *	@param	pi_env_head	Linked-list of perlenv structures so we can
  *				free them when ntt_pperl_destroy() is called.
  */
 struct perlinterp {
@@ -65,11 +66,12 @@ struct perlinterp {
 
 
 /*!
- * @INTERNAL
+ * @struct perlcode
+ * @internal
  *
  * Data structure representing compiled perl code.
  *
- *	@var	pc_interp	Back-pointer to perl interpreter used to
+ *	@param	pc_interp	Back-pointer to perl interpreter used to
  *				compile the code in.  We use this to ensure
  *				that we always execute the code in the same
  *				interpreter it was compiled in.  This allows
@@ -77,23 +79,23 @@ struct perlinterp {
  *				interpreter instances without having to jump
  *				through hoops to use them.
  *
- *	@var	pc_sv		Perl reference to the anonymous subroutine
+ *	@param	pc_sv		Perl reference to the anonymous subroutine
  *				representing the compiled code.  See comments
  *				in ntt_pperl_compile() for details.
  *
- *	@var	pc_name		Name associated with the code.  This is used
+ *	@param	pc_name		Name associated with the code.  This is used
  *				for reporting error messages and is the
  *				initial value of $0 when the code is executed.
  *
- *	@var	pc_pkgid	Unique number for identifying compiled code.
+ *	@param	pc_pkgid	Unique number for identifying compiled code.
  *				This is used internally for creating a unique
  *				namespace for each piece of code compiled
  *				within a single interpreter.  See
  *				ntt_pperl_compile() for details.
  *
- *	@var	pc_pkgstash	Perl package code was compiled and executes in.
+ *	@param	pc_pkgstash	Perl package code was compiled and executes in.
  *
- *	@var	pc_link		Link in linked list of perlcode structures
+ *	@param	pc_link		Link in linked list of perlcode structures
  *				associated with the compiling interpreter.
  */
 struct perlcode {
@@ -109,7 +111,8 @@ struct perlcode {
 
 
 /*!
- * @INTERNAL
+ * @struct perlargs
+ * @internal
  *
  * Abstract data type for representing argument list passed to perl code
  * as \@ARGV array.
@@ -121,30 +124,30 @@ struct perlcode {
  * we are free to change the implementation in the future without changing the
  * API.
  *
- *	@var	pa_interp	Perl interpreter \@ARGV array is created in.
+ *	@param	pa_interp	Perl interpreter \@ARGV array is created in.
  *
- *	@var	pa_tainted	Whether or not to set the TAINTED flag on
+ *	@param	pa_tainted	Whether or not to set the TAINTED flag on
  *				the elements of perl's \@ARGV array.
  *
- *	@var	pa_argc		The number of arguments in the list.
+ *	@param	pa_argc		The number of arguments in the list.
  *
- *	@var	pa_arglenv	Array of argument lengths.
+ *	@param	pa_arglenv	Array of argument lengths.
  *
- *	@var	pa_strbuf	Buffer for holding argument strings.  The
+ *	@param	pa_strbuf	Buffer for holding argument strings.  The
  *				strings are concatenated in this storage buffer
  *				with the \a pa_arglenv used to determine where
  *				each argument ends.
  *
- *	@var	pa_arglenv_size	The number of elements the \a pa_arglenv array
+ *	@param	pa_arglenv_size	The number of elements the \a pa_arglenv array
  *				can currently hold.
  *
- *	@var	pa_strbuf_size	The number of bytes the \a pa_strbuf buffer can
+ *	@param	pa_strbuf_size	The number of bytes the \a pa_strbuf buffer can
  *				currently hold.
  *
- *	@var	pa_strbuf_len	The number of bytes used in the \a pa_strbuf
+ *	@param	pa_strbuf_len	The number of bytes used in the \a pa_strbuf
  *				buffer.
  *
- *	@var	pa_link		Link in linked list of perlargs structures
+ *	@param	pa_link		Link in linked list of perlargs structures
  *				for the parent interpreter.
  */
 struct perlargs {
@@ -164,8 +167,9 @@ struct perlargs {
 
 
 /*!
- * @INTERNAL
- * 
+ * @struct perlenv
+ * @internal
+ *
  *	Abstract data type for representing environment variable list passed
  *	to perl code as the \%ENV hash.
  *
@@ -181,15 +185,15 @@ struct perlargs {
  *	original if a script modified \%ENV, which should be fairly rare.     
  *	However, this has not been implemented yet.
  *
- *	@var	pe_interp	The interpreter this environment list is
+ *	@param	pe_interp	The interpreter this environment list is
  *				associated with.
  *
- *	@var	pe_envhash	Perl hash holding the environment variables.
+ *	@param	pe_envhash	Perl hash holding the environment variables.
  *
- *	@var	pe_tainted	Whether or not to set the TAINTED flag on the
+ *	@param	pe_tainted	Whether or not to set the TAINTED flag on the
  *				elements of perl's \%ENV hash.
  *
- *	@var	pe_link		Link in linked list of perlenv structures
+ *	@param	pe_link		Link in linked list of perlenv structures
  *				for the parent interpreter.
  */
 struct perlenv {

@@ -35,14 +35,33 @@ EXTERN_C void	 xs_init _((void));			    /* perlxsi.c */
 
 static void	 ntt_pperl_setvars(const char *procname);
 static SV	*ntt_pperl_eval(SV *code_sv, const char *name,
-				const perlenv_t penv);
-static void	 ntt_pperl_calllist_run(AV *calllist, const HV *pkgstash);
+				perlenv_t penv, struct perlresult *result);
 static void	 ntt_pperl_calllist_clear(AV *calllist, const HV *pkgstash);
+static void	 ntt_pperl_calllist_run(AV *calllist, const HV *pkgstash);
 static XS(XS_ntt_pperl_exit);
 
 
 /* Macro for removing const poisoning.  Use with extreme caution. */
 #define	ignoreconst(exp)	((void *)(intptr_t)(exp))
+
+
+/*
+ * Dummy result structure used when caller doesn't provide one of their own.
+ * This is junk storage and only used to simplify result reporting logic.
+ */
+static struct perlresult dummy_result;
+
+static __inline
+void
+ntt_pperl_result_init(struct perlresult **resultp)
+{
+	struct perlresult *result = *resultp;
+
+	if (result == NULL)
+		*resultp = &dummy_result;
+	else
+		ntt_pperl_result_clear(result);
+}
 
 
 /*!
@@ -317,12 +336,18 @@ ntt_pperl_incpath_add(perlinterp_t interp, const char *path)
  *				with while loading code.  This is primary for
  *				the benefit of any BEGIN, CHECK, or INIT code
  *				blocks that may run during load.
+ *
+ *	@param	result		If non-NULL, populated with the result returned
+ *				by any perl BEGIN, CHECK, or INIT blocks
+ *				executed as part of the module load.
  */
 void
 ntt_pperl_load_module(perlinterp_t interp, const char *modulename,
-		      perlenv_t penv)
+		      perlenv_t penv, struct perlresult *result)
 {
 	PerlInterpreter *orig_perl;
+
+	ntt_pperl_result_init(&result);
 
 	orig_perl = PERL_GET_CONTEXT;
 	PERL_SET_CONTEXT(interp->pi_perl);
@@ -355,7 +380,7 @@ ntt_pperl_load_module(perlinterp_t interp, const char *modulename,
 		sv = sv_newmortal();
 		sv_setpv(sv, "require ");
 		sv_catpv(sv, modulename);
-		eval_sv(sv, G_DISCARD);
+		eval_sv(sv, G_DISCARD|G_KEEPERR);
 		SPAGAIN;
 		POPSTACK;
 	}
@@ -363,13 +388,15 @@ ntt_pperl_load_module(perlinterp_t interp, const char *modulename,
 	FREETMPS;
 	LEAVE;
 
+	result->pperl_status = STATUS_CURRENT;
 	if (SvTRUE(ERRSV)) {
 		/*
 		 * XXX Return error to caller.  It would be nice if we could
 		 *     postprocess the error messages to make them more useful.
 		 */
-		char *error = SvPVX(ERRSV);
-		fatal(EX_SOFTWARE, "perl: %s", error);
+		result->pperl_errmsg = SvPVX(ERRSV);
+		ntt_log(NTT_LOG_DEBUG, "%s(%s): %s",
+			__func__, modulename, result->pperl_errmsg);
 	}
 
 	PERL_SET_CONTEXT(orig_perl);
@@ -384,7 +411,7 @@ ntt_pperl_load_module(perlinterp_t interp, const char *modulename,
  *
  *	@param	procname	Process name to use while executing perl
  *				code; this appears in ps output as well as
- *				$0 to the running perl code.
+ *				\$0 to the running perl code.
  *
  *	@note	Must be called within a perl ENTER/LEAVE block.
  */
@@ -441,13 +468,15 @@ ntt_pperl_setvars(const char *procname)
  *	@note	Perl code in BEGIN, CHECK, and INIT blocks is always executed
  *		during evaluation.  Depending on the expressing being evaluated,
  *		addition code may also be executed.  If an exception is thrown
- *		by any executed code, evaluation fails. XXXEXCEPTION
+ *		by any executed code, evaluation fails.  The error message
+ *		is propogated into the pperl_errmsg member of the perlresult
+ *		structure pointed to by \a result.
  *
  *	@param	code_sv		Perl scalar containing the code to execute
  *				within the eval.
  *
  *	@param	name		Text describing the code being evaluated; this
- *				is used as the $0 variable visible from the
+ *				is used as the \$0 variable visible from the
  *				perl code, appears in ps(1) output, and is
  *				used in error messages pertaining to the
  *				code.  If the code being evaluated was read
@@ -457,14 +486,21 @@ ntt_pperl_setvars(const char *procname)
  *	@param	penv		Environment variable list to populate \%ENV
  *				with while evaluating the string.
  *
- *	@return	The result of the eval statement.
+ *	@param	result		If non-NULL, populated with the result returned
+ *				by any perl code executed during the evaluation.
+ *
+ *	@return	The result of the eval statement or NULL if the statement
+ *		failed to be evaluated.
  */
 SV *
-ntt_pperl_eval(SV *code_sv, const char *name, perlenv_t penv)
+ntt_pperl_eval(SV *code_sv, const char *name, perlenv_t penv,
+	       struct perlresult *result)
 {
 	SV *anonsub;
 	HV *pkgstash;
 	dSP;			/* Declare local perl stack pointer. */
+
+	ntt_pperl_result_init(&result);
 
 #if 0
 	fprintf(stderr, "eval> %s", SvPV(code_sv, PL_na));
@@ -492,19 +528,21 @@ ntt_pperl_eval(SV *code_sv, const char *name, perlenv_t penv)
 	/* Don't need perl scalar containing code text anymore. */
 	SvREFCNT_dec(code_sv);
 
+	result->pperl_status = STATUS_CURRENT;
 	if (SvTRUE(ERRSV)) {
 		/*
 		 * XXX Return error to caller.  It would be nice if we could
 		 *     postprocess the error messages to make them more useful.
 		 */
-		char *error = SvPVX(ERRSV);
 		SvREFCNT_dec(anonsub);
-
 		PUTBACK;
 		FREETMPS;
 		LEAVE;
 
-		fatal(EX_SOFTWARE, "perl: %s", error);
+		result->pperl_errmsg = SvPVX(ERRSV);
+		ntt_log(NTT_LOG_DEBUG, "%s(%s): %s",
+			__func__, name, result->pperl_errmsg);
+
 		return (NULL);
 	}
 
@@ -531,6 +569,19 @@ ntt_pperl_eval(SV *code_sv, const char *name, perlenv_t penv)
 	PUTBACK;
 	FREETMPS;
 	LEAVE;
+
+	/*
+	 * Handle any exceptions raised by CHECK or INIT blocks.
+	 */
+	result->pperl_status = STATUS_CURRENT;
+	if (SvTRUE(ERRSV)) {
+		SvREFCNT_dec(anonsub);
+		result->pperl_errmsg = SvPVX(ERRSV);
+		ntt_log(NTT_LOG_DEBUG, "%s(%s): %s",
+			__func__, name, result->pperl_errmsg);
+
+		return (NULL);		
+	}
 
 	assert(SvREFCNT(anonsub) == 1);
 
@@ -559,10 +610,17 @@ ntt_pperl_eval(SV *code_sv, const char *name, perlenv_t penv)
  *
  *	@param	codelen		The length (in bytes) of the perl code to load.
  *
+ *	@param	result		If non-NULL, populated with the result returned
+ *				by any perl BEGIN, CHECK, or INIT code blocks
+ *				executed during load.
+ *
+ *	@return	Handle for refering to the loaded code if successful.  If
+ *		an error occurred during load, returns NULL; if \a result
+ *		was non-NULL, it is populated with the cause of the failure.
  */
 perlcode_t
 ntt_pperl_load(perlinterp_t interp, const char *name, perlenv_t penv,
-	       const char *code, size_t codelen)
+	       const char *code, size_t codelen, struct perlresult *result)
 {
 	static u_int pkgid = 0;
 	PerlInterpreter *orig_perl;
@@ -610,8 +668,20 @@ ntt_pperl_load(perlinterp_t interp, const char *name, perlenv_t penv,
 	sv_catpvn(code_sv, code, codelen);
 	sv_catpv(code_sv, "\n}\n");
 
-	anonsub = ntt_pperl_eval(code_sv, name, penv);
-	assert(anonsub != NULL);	/* XXXEXCEPTIONS */
+	anonsub = ntt_pperl_eval(code_sv, name, penv, result);
+
+	/*
+	 * If we failed to evaluate the code, propogate the error back to our
+	 * caller.  Details will be in the 'result' structure.
+	 */
+	if (anonsub == NULL) {
+		PERL_SET_CONTEXT(orig_perl);
+		return (NULL);
+	}
+
+	/*
+	 * Lookup perl "stash" representing the encapsulating package.
+	 */
 	{
 		SV *sv = SvRV(anonsub);
 		assert(SvTYPE(sv) == SVt_PVCV);
@@ -658,13 +728,20 @@ ntt_pperl_load(perlinterp_t interp, const char *name, perlenv_t penv,
  *
  *	@param	penv		Environment variable list to populate \%ENV
  *				with while running code.
+ *
+ *	@param	result		If non-NULL, populated with the exit status
+ *				and/or error message returned by the executed
+ *				perl code.
  */
 void
-ntt_pperl_run(const perlcode_t pc, perlargs_t pargs, perlenv_t penv)
+ntt_pperl_run(const perlcode_t pc, perlargs_t pargs, perlenv_t penv,
+	      struct perlresult *result)
 {
 	const perlinterp_t interp = pc->pc_interp;
 	PerlInterpreter *orig_perl;
 	dSP;
+
+	ntt_pperl_result_init(&result);
 
 	/*
 	 * Save perl's notion of the "current" interpreter and switch to
@@ -692,11 +769,15 @@ ntt_pperl_run(const perlcode_t pc, perlargs_t pargs, perlenv_t penv)
 	FREETMPS;
 	LEAVE;
 
+	result->pperl_status = STATUS_CURRENT;
 	if (SvTRUE(ERRSV)) {
-		/* XXX Return error to caller? */
-		char *error = SvPVX(ERRSV);
-		printf("perl: %s", error);
-//		fatal(EX_SOFTWARE, "perl: %s", error);
+		/*
+		 * XXX Return error to caller.  It would be nice if we could
+		 *     postprocess the error messages to make them more useful.
+		 */
+		result->pperl_errmsg = SvPVX(ERRSV);
+		ntt_log(NTT_LOG_DEBUG, "%s(%s): %s",
+			__func__, pc->pc_name, result->pperl_errmsg);
 	}
 
 	/* Restore perl's notion of the "current" interpreter. */
@@ -779,6 +860,9 @@ ntt_pperl_calllist_clear(AV *calllist, const HV *pkgstash)
  *	@param	pkgstash	The perl package containing the code blocks to
  *				run/remove.
  *
+ *	@post	ERRSV is true if any code block in the call list raised an
+ *		exception.  The caller should check for this condition.
+ *
  *	@note	Must be called within an ENTER/LEAVE block. 
  *		ntt_pperl_setvars() should have already been called to setup
  *		the perl environment.
@@ -811,18 +895,15 @@ ntt_pperl_calllist_run(AV *calllist, const HV *pkgstash)
 			continue;
 		}
 
-		if (!SvTRUE(ERRSV)) {
+		/*
+		 * We always run all END code blocks, but for all other call
+		 * lists we stop calling blocks once one dies.
+		 */
+		if (calllist == PL_endav || !SvTRUE(ERRSV)) {
 			I32 oldscope = PL_scopestack_ix;
 
 			PUSHMARK(SP);
 			call_sv(sv, G_EVAL|G_VOID|G_DISCARD);
-
-			if (SvTRUE(ERRSV)) {
-				/* XXX Return error to caller? */
-				char *error = SvPVX(ERRSV);
-				printf("perl: %s", error);
-//				fatal(EX_SOFTWARE, "perl: %s", error);
-			}
 
 			/* Ensure we return the same scope we started in. */
 			while (PL_scopestack_ix > oldscope) {
@@ -873,7 +954,8 @@ ntt_pperl_unload(perlcode_t *pcp)
 	PERL_SET_CONTEXT(pc->pc_interp->pi_perl);
 
 	/*
-	 * Run END blocks now.
+	 * Run END blocks now.  It doesn't really matter if they raise an
+	 * exception, because we are going to unload the code anyway.
 	 */
 	ENTER;
 	ntt_pperl_setvars(pc->pc_name);
@@ -922,7 +1004,7 @@ ntt_pperl_unload(perlcode_t *pcp)
 	 * Remove unique package name from parent package's namespace.
 	 */
 	parentstash = gv_stashpv(PPERL_NAMESPACE, FALSE);
-	asprintf(&name, "p%08X::", pc->pc_pkgid);
+	asprintf(&name, "_p%08X::", pc->pc_pkgid);
 	hv_delete(parentstash, name, strlen(name), G_DISCARD);
 	free(name);
 
@@ -965,6 +1047,11 @@ XS(XS_ntt_pperl_exit)
 	errsv = get_sv("@", TRUE);
 	sv_setsv(errsv, XXX exception_object);
 #endif
+
+	if (items > 0) {
+		STATUS_CURRENT = POPi;
+		PUTBACK;
+	}
 
 	sv_setpv(ERRSV, "");
 	croak(Nullch);

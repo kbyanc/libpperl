@@ -36,7 +36,8 @@
  * only executed when the code is unloaded rather than once per time the code
  * is run.  Global variables retain their contents across invocations.  Any
  * calls to 'exit' are trapped so that they do not cause the process to
- * actually terminate. XXXEXCEPTION
+ * actually terminate.  The exit value is instead returned via the pperl_status
+ * member of the perlresult structure.
  *
  * This implementation differs from that of most persistent perl interpreters
  * (including mod_perl) in that it *does* invoked perl CHECK and INIT blocks
@@ -85,7 +86,48 @@ enum ntt_pperl_newflags {
 };
 
 
+/*!
+ * @struct perlresult
+ *
+ * Data structure for representing exit status of executed perl code.
+ *
+ *	@param	pperl_status	Equivalent to perl's \$! variable.
+ *				Set to parameter perl code called exit() with;
+ *				otherwise value is zero.
+ *
+ *	@param	pperl_result	Equivalent to perl's \$@ variable.
+ *				Stringified version of parameter perl code
+ *				called die() with; otherwise value is NULL.
+ */
+struct perlresult {
+	int		 pperl_status;
+	const char	*pperl_errmsg;
+};
+
+
 __BEGIN_DECLS
+
+
+/*!
+ * ntt_pperl_result_clear() - Clear contents of perlresult structure.
+ *
+ *	In general, applications never need to call this routine as all APIs
+ *	which take a perlresult pointer clear the contents of the structure
+ *	before performing any operations which may set it (by calling this
+ *	routine in fact).
+ *
+ *	@param	result		Structure to clear.
+ */
+static __inline
+void
+ntt_pperl_result_clear(struct perlresult *result)
+{
+	if (result == NULL)
+		return;
+	result->pperl_status = 0;
+	result->pperl_errmsg = NULL;
+}
+
 
 extern perlinterp_t	 ntt_pperl_new(enum ntt_pperl_newflags flags);
 extern void		 ntt_pperl_destroy(perlinterp_t *interpp);
@@ -113,14 +155,17 @@ extern void		 ntt_pperl_incpath_add(perlinterp_t interp,
 
 extern void		 ntt_pperl_load_module(perlinterp_t interp,
 					       const char *modulename,
-					       perlenv_t penv);
+					       perlenv_t penv,
+					       struct perlresult *result);
 
 
 extern perlcode_t	 ntt_pperl_load(perlinterp_t interp,
 					const char *name, perlenv_t penv,
-					const char *code, size_t codelen);
-extern void		 ntt_pperl_run(perlcode_t pc, perlargs_t pargs,
-				       perlenv_t penv);
+					const char *code, size_t codelen,
+					struct perlresult *result);
+extern void		 ntt_pperl_run(perlcode_t pc,
+				       perlargs_t pargs, perlenv_t penv,
+				       struct perlresult *result);
 extern void		 ntt_pperl_unload(perlcode_t *pcp);
 
 __END_DECLS
