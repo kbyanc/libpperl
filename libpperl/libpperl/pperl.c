@@ -30,9 +30,6 @@
 #include "log.h"
 #include "pperl.h"
 
-#if (PERL_REVISION < 5) || (PERL_VERSION < 8) || (PERL_SUBVERSION < 4)
-#error requires perl 5.8.4 or later
-#endif
 
 #define	PPERL_NAMESPACE	"NTTMCL::Persistent"
 
@@ -135,6 +132,12 @@ ntt_pperl_new(void)
 	perlinterp_t interp;
 	char **argv;
 	PerlInterpreter *perl;
+
+	/*
+	 * Require perl 5.8.4 or later.  Not done as a compile-time check to
+	 * allow libnttmcl to build even if installed perl is older.
+	 */
+	assert(PERL_REVISION == 5 && PERL_VERSION >= 8 && PERL_SUBVERSION >= 4);
 
 	/*
 	 * Contrary to what examples there are of using an embedded perl
