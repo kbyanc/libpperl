@@ -130,7 +130,8 @@ ntt_pperl_result_clear(struct perlresult *result)
 }
 
 
-extern perlinterp_t	 ntt_pperl_new(enum ntt_pperl_newflags flags);
+extern perlinterp_t	 ntt_pperl_new(const char *procname,
+				       enum ntt_pperl_newflags flags);
 extern void		 ntt_pperl_destroy(perlinterp_t *interpp);
 
 

@@ -66,6 +66,9 @@ ntt_pperl_result_init(struct perlresult **resultp)
  *	Initializes a new perl interpreter for executing perl code in a
  *	persistent environment.
  *
+ *	@param	procname	Process name used for current process when no
+ *				perl code is executing.
+ *
  *	@param	flags		Bitwise-OR of flags indicating behaviour of
  *				the new interpreter.  Corelate directly to
  *				various perl command-line options.
@@ -74,7 +77,7 @@ ntt_pperl_result_init(struct perlresult **resultp)
  *	@return	Handle for referring to the new persistent perl interpreter.
  */
 perlinterp_t
-ntt_pperl_new(enum ntt_pperl_newflags flags)
+ntt_pperl_new(const char *procname, enum ntt_pperl_newflags flags)
 {
 	struct sbuf opt_sb;
 	perlinterp_t interp;
@@ -197,6 +200,16 @@ ntt_pperl_new(enum ntt_pperl_newflags flags)
 	LIST_INIT(&interp->pi_io_head);
 
 	ntt_pperl_io_init();
+
+	/*
+	 * Set the default process name displayed in 'ps' when no perl code
+	 * is being executed.  If we do not set this explicitely, perl will
+	 * display '-e' which is a pretty obscure default.
+	 */
+	{
+		GV *zero = gv_fetchpv("0", TRUE, SVt_PV); 
+		sv_setpv_mg(GvSV(zero), procname);
+	}
 
 	ntt_log(NTT_LOG_DEBUG, "perl interpreter initialized (%p)", interp);
 
