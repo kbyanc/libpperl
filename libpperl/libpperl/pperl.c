@@ -41,10 +41,6 @@ static void	 ntt_pperl_calllist_run(AV *calllist, const HV *pkgstash);
 static XS(XS_ntt_pperl_exit);
 
 
-/* Macro for removing const poisoning.  Use with extreme caution. */
-#define	ignoreconst(exp)	((void *)(intptr_t)(exp))
-
-
 /*
  * Dummy result structure used when caller doesn't provide one of their own.
  * This is junk storage and only used to simplify result reporting logic.
@@ -198,6 +194,9 @@ ntt_pperl_new(enum ntt_pperl_newflags flags)
 	LIST_INIT(&interp->pi_args_head);
 	LIST_INIT(&interp->pi_code_head);
 	LIST_INIT(&interp->pi_env_head);
+	LIST_INIT(&interp->pi_io_head);
+
+	ntt_pperl_io_init();
 
 	ntt_log(NTT_LOG_DEBUG, "perl interpreter initialized (%p)", interp);
 
@@ -222,6 +221,7 @@ ntt_pperl_destroy(perlinterp_t *interpp)
 	perlcode_t code;
 	perlargs_t pargs;
 	perlenv_t penv;
+	perlio_t pio;
 	PerlInterpreter *orig_perl;
 	PerlInterpreter *perl;
 
@@ -255,6 +255,11 @@ ntt_pperl_destroy(perlinterp_t *interpp)
 	while (!LIST_EMPTY(&interp->pi_env_head)) {
 		penv = LIST_FIRST(&interp->pi_env_head);
 		ntt_pperl_env_destroy(&penv);
+	}
+
+	while (!LIST_EMPTY(&interp->pi_io_head)) {
+		pio = LIST_FIRST(&interp->pi_io_head);
+		ntt_pperl_io_destroy(&pio);
 	}
 
 	PL_exit_flags |= PERL_EXIT_DESTRUCT_END;

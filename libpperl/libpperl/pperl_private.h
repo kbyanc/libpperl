@@ -28,6 +28,13 @@
 
 
 #define	PPERL_NAMESPACE "NTTMCL::Persistent"
+#define	PPERL_IOLAYER	"ntt_pperl"
+
+
+/* Macro for removing const poisoning.  Use with extreme caution. */
+#define	ignoreconst(exp)	((void *)(intptr_t)(exp))
+
+
 
 /*!
  * @struct perlinterp
@@ -55,6 +62,9 @@
  *
  *	@param	pi_env_head	Linked-list of perlenv structures so we can
  *				free them when ntt_pperl_destroy() is called.
+ *
+ *	@param	pi_io_head	Linked-list of perlio structures so we can
+ *				free them when ntt_pperl_destroy() is called.
  */
 struct perlinterp {
 	PerlInterpreter		 *pi_perl;
@@ -62,6 +72,7 @@ struct perlinterp {
 	LIST_HEAD(, perlargs)	  pi_args_head;
 	LIST_HEAD(, perlcode)	  pi_code_head;
 	LIST_HEAD(, perlenv)	  pi_env_head;
+	LIST_HEAD(, perlio)	  pi_io_head;
 };
 
 
@@ -208,5 +219,47 @@ struct perlenv {
 extern void	 ntt_pperl_args_populate(perlargs_t pargs);
 extern void	 ntt_pperl_env_populate(perlenv_t penv);
 
+
+/*!
+ * @struct perlio
+ * @internal
+ *
+ *	Abstract data type for representing a perl I/O handle.
+ *
+ *	@param	pio_onRead	Callback, if any, to be invoked whenever a
+ *				perl script reads from the I/O handle.
+ *
+ *	@param	pio_onWrite	Callback, if any, to be invoked whenever a
+ *				perl script writes to the I/O handle.
+ *
+ *	@param	pio_onClose	Callback, if any, to be invoked when the I/O
+ *				handle is closed.
+ *
+ *	@param	pio_data	Opaque data passed to callbacks when they are
+ *				invoked.
+ *
+ *	@param	pio_f		The PerlIO structure representing the perl I/O
+ *				handle.
+ *
+ *	@param	pio_interp	The persistent perl interpreter the handle
+ *				exists in.
+ *
+ *	@param	pio_link	Link in linked list of perlio structures for
+ *				the parent interpreter.
+ */
+struct perlio {
+	ntt_pperl_io_read_t	*pio_onRead; 
+	ntt_pperl_io_write_t	*pio_onWrite;
+	ntt_pperl_io_close_t	*pio_onClose;
+
+	intptr_t		 pio_data;
+
+	PerlIO			*pio_f;
+	perlinterp_t		 pio_interp;
+	LIST_ENTRY(perlio)	 pio_link;
+};
+
+extern void	 ntt_pperl_io_init(void);
+extern void	 ntt_pperl_io_destroy(perlio_t *piop);
 
 #endif

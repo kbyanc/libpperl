@@ -48,6 +48,7 @@
 typedef struct perlinterp *perlinterp_t;
 typedef struct perlenv *perlenv_t;
 typedef struct perlargs *perlargs_t;
+typedef struct perlio *perlio_t;
 typedef struct perlcode *perlcode_t;
 
 
@@ -148,6 +149,19 @@ extern perlargs_t	 ntt_pperl_args_new(perlinterp_t interp, bool tainted,
 extern void		 ntt_pperl_args_append(perlargs_t pargs,
 					       const char *arg);
 extern void		 ntt_pperl_args_destroy(perlargs_t *pargsp);
+
+
+typedef size_t (ntt_pperl_io_read_t)(char *buf, size_t buflen, intptr_t data);
+typedef size_t (ntt_pperl_io_write_t)(const char *buf, size_t buflen,
+				      intptr_t data);
+typedef void (ntt_pperl_io_close_t)(intptr_t);
+
+extern void		 ntt_pperl_io_override(perlinterp_t interp,
+					       const char *name,
+					       ntt_pperl_io_read_t *onRead,
+					       ntt_pperl_io_write_t *onWrite,
+					       ntt_pperl_io_close_t *onClose,
+					       intptr_t data);
 
 
 extern void		 ntt_pperl_incpath_add(perlinterp_t interp,
