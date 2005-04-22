@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2004 NTT Multimedia Communications Laboratories, Inc.
+ * Copyright (c) 2004,2005 NTT Multimedia Communications Laboratories, Inc.
  * All rights reserved 
  *
  * Redistribution and use in source and/or binary forms of 
@@ -340,10 +340,26 @@ ntt_pperl_io_override(perlinterp_t interp, const char *name,
 
 	/*
 	 * Close the handle if it already exists and is open.
+	 *
+	 * For some reason, perl protects the file descriptors for stdin and
+	 * and stdout from being closed (which is good), but does not extend
+	 * that protection to stderr.  Since most C code considers stderr just
+	 * as special as stdin and stdout, we need to provide protection to
+	 * stderr ourselves.
+	 *
+	 * Since it is a royal pain in the rear to determine whether a perl
+	 * IO handle refers to stderr or not, just always save and restore
+	 * its file descriptor. :|
 	 */
 	if (handle != NULL && SvTYPE(handle) == SVt_PVGV &&
-	    IoTYPE(GvIO(handle)) != IoTYPE_CLOSED)
-		Perl_do_close(aTHX_ handle, TRUE);
+	    IoTYPE(GvIO(handle)) != IoTYPE_CLOSED) {
+		int savefd;
+
+		savefd = dup(STDERR_FILENO);
+		Perl_do_close(aTHX_ handle, FALSE);
+		dup2(savefd, STDERR_FILENO);
+		close(savefd);
+	}
 
 	if (!Perl_do_open9(aTHX_ handle, ignoreconst(openstr), strlen(openstr),
 			   FALSE, O_WRONLY, 0, Nullfp, sv, 1)) {
