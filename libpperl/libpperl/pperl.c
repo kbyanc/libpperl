@@ -1054,7 +1054,7 @@ XS(XS_ntt_pperl_exit)
 	(void)cv;		/* Silence warning about unused parameter. */
 
 	/*
-	 * Temporarily clear $SIG{__DIE__} while we through our exception to
+	 * Temporarily clear $SIG{__DIE__} while we throw our exception to
 	 * prevent it from interfering.
 	 */
 	ENTER;
