@@ -1,16 +1,26 @@
 /*
- * Copyright (c) 2004 NTT Multimedia Communications Laboratories, Inc.
- * All rights reserved 
+ * Copyright (c) 2004,2005 NTT Multimedia Communications Laboratories, Inc.
+ * All rights reserved
  *
- * Redistribution and use in source and/or binary forms of 
- * this software, with or without modification, are prohibited. 
- * Detailed license terms appear in the file named "COPYRIGHT".
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  *
  * $NTTMCL$
  */
 
-#ifndef _INCLUDE_NTTMCL_PPERL_
-#define _INCLUDE_NTTMCL_PPERL_
+#ifndef _INCLUDE_LIBPPERL_
+#define _INCLUDE_LIBPPERL_
 
 #include <sys/cdefs.h>
 #include <sys/types.h>
@@ -54,14 +64,14 @@ typedef struct perlcode *perlcode_t;
 
 /*!
  * Flags used to specify the behavior of an interpreter created by
- * ntt_pperl_new().  WARNINGS_* options are mutually-exclusive (that is,
- * only zero or one option from that group of flags should be specified).
- * Simiarly, the TAINT_* options are mutually exclusive.  However, the
+ * pperl_new().  WARNINGS_* options are mutually-exclusive (that is, only
+ * zero or one option from that group of flags should be specified).
+ * Similarly, the TAINT_* options are mutually exclusive.  However, the
  * UNICODE_* options may be combined.  Flags are bitwise-OR'ed together.
  * For example, WARNINGS_ENABLE|TAINT_WARN|UNICODE_STDALL|UNICODE_IO_DEFAULT
  * is equivalent to the perl command-line "-wt -CSD".
  */
-enum ntt_pperl_newflags {
+enum pperl_newflags {
 	DEFAULT			= 0x00000000,
 
 	WARNINGS_ENABLE		= 0x00000001,	/*!< -w perl command-line. */
@@ -110,7 +120,7 @@ __BEGIN_DECLS
 
 
 /*!
- * ntt_pperl_result_clear() - Clear contents of perlresult structure.
+ * pperl_result_clear() - Clear contents of perlresult structure.
  *
  *	In general, applications never need to call this routine as all APIs
  *	which take a perlresult pointer clear the contents of the structure
@@ -121,7 +131,7 @@ __BEGIN_DECLS
  */
 static __inline
 void
-ntt_pperl_result_clear(struct perlresult *result)
+pperl_result_clear(struct perlresult *result)
 {
 	if (result == NULL)
 		return;
@@ -130,58 +140,71 @@ ntt_pperl_result_clear(struct perlresult *result)
 }
 
 
-extern perlinterp_t	 ntt_pperl_new(const char *procname,
-				       enum ntt_pperl_newflags flags);
-extern void		 ntt_pperl_destroy(perlinterp_t *interpp);
+extern perlinterp_t	 pperl_new(const char *procname,
+				   enum pperl_newflags flags);
+extern void		 pperl_destroy(perlinterp_t *interpp);
 
 
-extern perlenv_t	 ntt_pperl_env_new(perlinterp_t interp, bool tainted,
-					   int envc, const char **envp);
-extern void		 ntt_pperl_env_set(perlenv_t penv, const char *name,
-					   const char *value);
-extern const char	*ntt_pperl_env_get(const perlenv_t penv,
-					   const char *name);
-extern void		 ntt_pperl_env_unset(perlenv_t penv, const char *name);
-extern void		 ntt_pperl_env_destroy(perlenv_t *penvp);
+extern perlenv_t	 pperl_env_new(perlinterp_t interp, bool tainted,
+				       int envc, const char **envp);
+extern void		 pperl_env_set(perlenv_t penv, const char *name,
+				       const char *value);
+extern const char	*pperl_env_get(const perlenv_t penv,
+				       const char *name);
+extern void		 pperl_env_unset(perlenv_t penv, const char *name);
+extern void		 pperl_env_destroy(perlenv_t *penvp);
 
 
-extern perlargs_t	 ntt_pperl_args_new(perlinterp_t interp, bool tainted,
-					    int argc, const char **argv);
-extern void		 ntt_pperl_args_append(perlargs_t pargs,
-					       const char *arg);
-extern void		 ntt_pperl_args_destroy(perlargs_t *pargsp);
+extern perlargs_t	 pperl_args_new(perlinterp_t interp, bool tainted,
+					int argc, const char **argv);
+extern void		 pperl_args_append(perlargs_t pargs, const char *arg);
+extern void		 pperl_args_destroy(perlargs_t *pargsp);
 
 
-typedef size_t (ntt_pperl_io_read_t)(char *buf, size_t buflen, intptr_t data);
-typedef size_t (ntt_pperl_io_write_t)(const char *buf, size_t buflen,
-				      intptr_t data);
-typedef void (ntt_pperl_io_close_t)(intptr_t);
+typedef size_t (pperl_io_read_t)(char *buf, size_t buflen, intptr_t data);
+typedef size_t (pperl_io_write_t)(const char *buf, size_t buflen,
+				  intptr_t data);
+typedef void (pperl_io_close_t)(intptr_t);
 
-extern void		 ntt_pperl_io_override(perlinterp_t interp,
-					       const char *name,
-					       ntt_pperl_io_read_t *onRead,
-					       ntt_pperl_io_write_t *onWrite,
-					       ntt_pperl_io_close_t *onClose,
-					       intptr_t data);
-
-
-extern void		 ntt_pperl_incpath_add(perlinterp_t interp,
-					       const char *path);
-
-extern void		 ntt_pperl_load_module(perlinterp_t interp,
-					       const char *modulename,
-					       perlenv_t penv,
-					       struct perlresult *result);
+extern void		 pperl_io_override(perlinterp_t interp,
+					   const char *name,
+					   pperl_io_read_t *onRead,
+					   pperl_io_write_t *onWrite,
+					   pperl_io_close_t *onClose,
+					   intptr_t data);
 
 
-extern perlcode_t	 ntt_pperl_load(perlinterp_t interp,
-					const char *name, perlenv_t penv,
-					const char *code, size_t codelen,
-					struct perlresult *result);
-extern void		 ntt_pperl_run(perlcode_t pc,
-				       perlargs_t pargs, perlenv_t penv,
-				       struct perlresult *result);
-extern void		 ntt_pperl_unload(perlcode_t *pcp);
+extern void		 pperl_incpath_add(perlinterp_t interp,
+					   const char *path);
+
+extern void		 pperl_load_module(perlinterp_t interp,
+					   const char *modulename,
+					   perlenv_t penv,
+					   struct perlresult *result);
+
+
+extern perlcode_t	 pperl_load(perlinterp_t interp,
+				    const char *name, perlenv_t penv,
+				    const char *code, size_t codelen,
+				    struct perlresult *result);
+extern void		 pperl_run(perlcode_t pc,
+				   perlargs_t pargs, perlenv_t penv,
+				   struct perlresult *result);
+extern void		 pperl_unload(perlcode_t *pcp);
+
+
+/*
+ * Internal logging routines for libpperl.
+ * These all are defined as weak linker symbols in the library, allowing
+ * applications to replace them with their own implementations.  Hence, we
+ * export the declarations.
+ */
+extern void		 pperl_log(int priority, const char *fmt, ...)
+			     __attribute__ ((format (printf, 2, 3)));
+extern void		 pperl_logv(int priority, const char *fmt, va_list ap);
+extern void		 pperl_fatal(int eval, const char *fmt, ...)
+			     __attribute__ ((noreturn, format (printf, 2, 3)));
+
 
 __END_DECLS
 

@@ -1,10 +1,20 @@
 /*
- * Copyright (c) 2004 NTT Multimedia Communications Laboratories, Inc.
- * All rights reserved 
+ * Copyright (c) 2004,2005 NTT Multimedia Communications Laboratories, Inc.
+ * All rights reserved
  *
- * Redistribution and use in source and/or binary forms of 
- * this software, with or without modification, are prohibited. 
- * Detailed license terms appear in the file named "COPYRIGHT".
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  *
  * $NTTMCL$
  */
@@ -19,6 +29,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sysexits.h>
+#include <syslog.h>
 #include <unistd.h>
 
 #define	HAS_BOOL	/* We use stdbool's bool type rather than perl's. */
@@ -26,19 +37,18 @@
 #include <XSUB.h>
 #include <perl.h>
 
-#include "log.h"
 #include "pperl.h"
 #include "pperl_private.h"
 
 
 EXTERN_C void	 xs_init _((void));			    /* perlxsi.c */
 
-static void	 ntt_pperl_setvars(const char *procname);
-static SV	*ntt_pperl_eval(SV *code_sv, const char *name,
-				perlenv_t penv, struct perlresult *result);
-static void	 ntt_pperl_calllist_clear(AV *calllist, const HV *pkgstash);
-static void	 ntt_pperl_calllist_run(AV *calllist, const HV *pkgstash);
-static XS(XS_ntt_pperl_exit);
+static void	 pperl_setvars(const char *procname);
+static SV	*pperl_eval(SV *code_sv, const char *name,
+			    perlenv_t penv, struct perlresult *result);
+static void	 pperl_calllist_clear(AV *calllist, const HV *pkgstash);
+static void	 pperl_calllist_run(AV *calllist, const HV *pkgstash);
+static XS(XS_pperl_exit);
 
 
 /*
@@ -49,19 +59,19 @@ static struct perlresult dummy_result;
 
 static __inline
 void
-ntt_pperl_result_init(struct perlresult **resultp)
+pperl_result_init(struct perlresult **resultp)
 {
 	struct perlresult *result = *resultp;
 
 	if (result == NULL)
 		*resultp = &dummy_result;
 	else
-		ntt_pperl_result_clear(result);
+		pperl_result_clear(result);
 }
 
 
 /*!
- * ntt_pperl_new() - Create a new persistent perl interpreter.
+ * pperl_new() - Create a new persistent perl interpreter.
  *
  *	Initializes a new perl interpreter for executing perl code in a
  *	persistent environment.
@@ -72,12 +82,12 @@ ntt_pperl_result_init(struct perlresult **resultp)
  *	@param	flags		Bitwise-OR of flags indicating behaviour of
  *				the new interpreter.  Corelate directly to
  *				various perl command-line options.
- *				\see ntt_pperl_newflags in pperl.h.
+ *				\see pperl_newflags in pperl.h.
  *
  *	@return	Handle for referring to the new persistent perl interpreter.
  */
 perlinterp_t
-ntt_pperl_new(const char *procname, enum ntt_pperl_newflags flags)
+pperl_new(const char *procname, enum pperl_newflags flags)
 {
 	struct sbuf opt_sb;
 	perlinterp_t interp;
@@ -86,7 +96,7 @@ ntt_pperl_new(const char *procname, enum ntt_pperl_newflags flags)
 
 	/*
 	 * Require perl 5.8.4 or later.  Not done as a compile-time check to
-	 * allow libnttmcl to build even if installed perl is older.
+	 * allow libpperl to build even if installed perl is older.
 	 */
 	assert(PERL_REVISION == 5 && PERL_VERSION >= 8 && PERL_SUBVERSION >= 4);
 
@@ -154,8 +164,10 @@ ntt_pperl_new(const char *procname, enum ntt_pperl_newflags flags)
 	 * order to initialize the interpreter to a useable state.  As such,
 	 * we provide a null script using the command-line -e argument.
 	 */
-	if (perl_parse(perl, xs_init, 2, argv, environ) != 0)
-		fatal(EX_UNAVAILABLE, "failed to initialize perl interpreter");
+	if (perl_parse(perl, xs_init, 2, argv, environ) != 0) {
+		pperl_fatal(EX_UNAVAILABLE,
+			    "failed to initialize perl interpreter");
+	}
 
 	/*
 	 * Run the parsed script, defering END blocks until we call
@@ -175,10 +187,10 @@ ntt_pperl_new(const char *procname, enum ntt_pperl_newflags flags)
 	 * Note: Perl's prototype for newXS is missing const specifiers for
 	 *	 the string arguments even though they are really constant.
 	 */
-	newXS(ignoreconst(PPERL_NAMESPACE "::exit"), XS_ntt_pperl_exit,
+	newXS(ignoreconst(PPERL_NAMESPACE "::exit"), XS_pperl_exit,
 	      ignoreconst(__FILE__));
 	{
-		/* *CORE::GLOBAL::exit = \&NTTMCL::Persistent::exit; */
+		/* *CORE::GLOBAL::exit = \&libpperl::_private::exit; */
 		GV *gv = gv_fetchpv("CORE::GLOBAL::exit", TRUE, SVt_PVCV);
 		GvCV(gv) = get_cv(PPERL_NAMESPACE "::exit", TRUE);
 		GvIMPORTED_CV_on(gv);
@@ -188,10 +200,7 @@ ntt_pperl_new(const char *procname, enum ntt_pperl_newflags flags)
 	 * Now that the perl interpreter is initialized, construct our local
 	 * data structure to contain the interpreter state information.
 	 */
-	interp = malloc(sizeof(*interp));
-	if (interp == NULL)
-		fatal(EX_OSERR, "malloc: %m");
-
+	interp = pperl_malloc(sizeof(*interp));
 	interp->pi_perl = perl;
 	interp->pi_alloc_argv = argv;
 	LIST_INIT(&interp->pi_args_head);
@@ -199,7 +208,7 @@ ntt_pperl_new(const char *procname, enum ntt_pperl_newflags flags)
 	LIST_INIT(&interp->pi_env_head);
 	LIST_INIT(&interp->pi_io_head);
 
-	ntt_pperl_io_init();
+	pperl_io_init();
 
 	/*
 	 * Set the default process name displayed in 'ps' when no perl code
@@ -211,14 +220,14 @@ ntt_pperl_new(const char *procname, enum ntt_pperl_newflags flags)
 		sv_setpv_mg(GvSV(zero), procname);
 	}
 
-	ntt_log(NTT_LOG_DEBUG, "perl interpreter initialized (%p)", interp);
+	pperl_log(LOG_DEBUG, "perl interpreter initialized (%p)", interp);
 
 	return (interp);
 }
 
 
 /*!
- * ntt_pperl_destroy() - Destroy a persistent perl interpreter.
+ * pperl_destroy() - Destroy a persistent perl interpreter.
  *
  *	Frees all memory associated with the given perl interpreter as well
  *	as all code loaded into the interpreter.
@@ -228,7 +237,7 @@ ntt_pperl_new(const char *procname, enum ntt_pperl_newflags flags)
  *	@post	*interpp is set to NULL.
  */
 void
-ntt_pperl_destroy(perlinterp_t *interpp)
+pperl_destroy(perlinterp_t *interpp)
 {
 	perlinterp_t interp = *interpp;
 	perlcode_t code;
@@ -262,17 +271,17 @@ ntt_pperl_destroy(perlinterp_t *interpp)
 
 	while (!LIST_EMPTY(&interp->pi_args_head)) {
 		pargs = LIST_FIRST(&interp->pi_args_head);
-		ntt_pperl_args_destroy(&pargs);
+		pperl_args_destroy(&pargs);
 	}
 
 	while (!LIST_EMPTY(&interp->pi_env_head)) {
 		penv = LIST_FIRST(&interp->pi_env_head);
-		ntt_pperl_env_destroy(&penv);
+		pperl_env_destroy(&penv);
 	}
 
 	while (!LIST_EMPTY(&interp->pi_io_head)) {
 		pio = LIST_FIRST(&interp->pi_io_head);
-		ntt_pperl_io_destroy(&pio);
+		pperl_io_destroy(&pio);
 	}
 
 	PL_exit_flags |= PERL_EXIT_DESTRUCT_END;
@@ -293,7 +302,7 @@ ntt_pperl_destroy(perlinterp_t *interpp)
 
 
 /*!
- * ntt_pperl_incpath_add() - Add directories to perl's \@INC search path.
+ * pperl_incpath_add() - Add directories to perl's \@INC search path.
  *
  *	Adds additional directories to the head of perl's \@INC search path
  *	similar to perl's -I command-line option.  Only a single path may be
@@ -311,7 +320,7 @@ ntt_pperl_destroy(perlinterp_t *interpp)
  *		array are also shared by all code loaded into the interpreter.
  */
 void
-ntt_pperl_incpath_add(perlinterp_t interp, const char *path)
+pperl_incpath_add(perlinterp_t interp, const char *path)
 {
 	PerlInterpreter *orig_perl;
 	SV *path_sv;
@@ -332,16 +341,16 @@ ntt_pperl_incpath_add(perlinterp_t interp, const char *path)
 
 
 /*!
- * ntt_pperl_load_module() - Load a perl module into the interpreter.
+ * pperl_load_module() - Load a perl module into the interpreter.
  *
  *	Loads the given perl module into the interpreter.  Equivilent to
  *	the "require" perl command, complete with perl's module naming
  *	semantics.
  *
  *	In general, loading code which requires a module will automatically
- *	load that module as part of ntt_pperl_load(). As such, this routine
+ *	load that module as part of pperl_load(). As such, this routine
  *	is only useful if arbitrary code is going to be loaded during the
- *	program's lifetime and you want to speed ntt_pperl_load() by ensuring
+ *	program's lifetime and you want to speed pperl_load() by ensuring
  *	any required modules are preloaded.  If you are going to load all of
  *	your code when the program is started, then this routine gains you
  *	nothing.
@@ -360,12 +369,12 @@ ntt_pperl_incpath_add(perlinterp_t interp, const char *path)
  *				executed as part of the module load.
  */
 void
-ntt_pperl_load_module(perlinterp_t interp, const char *modulename,
-		      perlenv_t penv, struct perlresult *result)
+pperl_load_module(perlinterp_t interp, const char *modulename,
+		  perlenv_t penv, struct perlresult *result)
 {
 	PerlInterpreter *orig_perl;
 
-	ntt_pperl_result_init(&result);
+	pperl_result_init(&result);
 
 	orig_perl = PERL_GET_CONTEXT;
 	PERL_SET_CONTEXT(interp->pi_perl);
@@ -373,8 +382,8 @@ ntt_pperl_load_module(perlinterp_t interp, const char *modulename,
 	ENTER;
 	SAVETMPS;
 
-	ntt_pperl_setvars(modulename);
-	ntt_pperl_env_populate(penv);
+	pperl_setvars(modulename);
+	pperl_env_populate(penv);
 
 	/*
 	 * What follows is almost identical to the implementation of perl's
@@ -413,8 +422,8 @@ ntt_pperl_load_module(perlinterp_t interp, const char *modulename,
 		 *     postprocess the error messages to make them more useful.
 		 */
 		result->pperl_errmsg = SvPVX(ERRSV);
-		ntt_log(NTT_LOG_DEBUG, "%s(%s): %s",
-			__func__, modulename, result->pperl_errmsg);
+		pperl_log(LOG_DEBUG, "%s(%s): %s",
+			  __func__, modulename, result->pperl_errmsg);
 	}
 
 	PERL_SET_CONTEXT(orig_perl);
@@ -422,7 +431,7 @@ ntt_pperl_load_module(perlinterp_t interp, const char *modulename,
 
 
 /*!
- * ntt_pperl_setvars() - Populate global perl variables.
+ * pperl_setvars() - Populate global perl variables.
  *
  *	Properly sets up several of perl's global variables with appropriate
  *	values in preparation to run perl code.
@@ -434,7 +443,7 @@ ntt_pperl_load_module(perlinterp_t interp, const char *modulename,
  *	@note	Must be called within a perl ENTER/LEAVE block.
  */
 void
-ntt_pperl_setvars(const char *procname)
+pperl_setvars(const char *procname)
 {
 
 	/*
@@ -466,7 +475,7 @@ ntt_pperl_setvars(const char *procname)
 	/*
 	 * Ensure $$ contains the correct process ID.  This covers the
 	 * possibility that the calling process may fork after calling
-	 * ntt_pperl_new().
+	 * pperl_new().
 	 */
 	{
 		GV *pid = gv_fetchpv("$", TRUE, SVt_PV);
@@ -476,7 +485,7 @@ ntt_pperl_setvars(const char *procname)
 
 
 /*!
- * ntt_pperl_eval() - Evaluate perl code in current interpreter.
+ * pperl_eval() - Evaluate perl code in current interpreter.
  *
  *	Executes the given code inside a perl eval statement.  The code is
  *	always evaluated in scalar context and the result returned.
@@ -511,14 +520,14 @@ ntt_pperl_setvars(const char *procname)
  *		failed to be evaluated.
  */
 SV *
-ntt_pperl_eval(SV *code_sv, const char *name, perlenv_t penv,
+pperl_eval(SV *code_sv, const char *name, perlenv_t penv,
 	       struct perlresult *result)
 {
 	SV *anonsub;
 	HV *pkgstash;
 	dSP;			/* Declare local perl stack pointer. */
 
-	ntt_pperl_result_init(&result);
+	pperl_result_init(&result);
 
 #if 0
 	fprintf(stderr, "eval> %s", SvPV(code_sv, PL_na));
@@ -527,8 +536,8 @@ ntt_pperl_eval(SV *code_sv, const char *name, perlenv_t penv,
 	ENTER;
 	SAVETMPS;
 
-	ntt_pperl_setvars(name);
-	ntt_pperl_env_populate(penv);
+	pperl_setvars(name);
+	pperl_env_populate(penv);
 
 	PUSHMARK(SP);
 
@@ -558,8 +567,8 @@ ntt_pperl_eval(SV *code_sv, const char *name, perlenv_t penv,
 		LEAVE;
 
 		result->pperl_errmsg = SvPVX(ERRSV);
-		ntt_log(NTT_LOG_DEBUG, "%s(%s): %s",
-			__func__, name, result->pperl_errmsg);
+		pperl_log(LOG_DEBUG, "%s(%s): %s",
+			  __func__, name, result->pperl_errmsg);
 
 		return (NULL);
 	}
@@ -581,8 +590,8 @@ ntt_pperl_eval(SV *code_sv, const char *name, perlenv_t penv,
 	 * run with the same environment already setup for the compilation
 	 * step.
 	 */
-	ntt_pperl_calllist_run(PL_checkav, pkgstash);
-	ntt_pperl_calllist_run(PL_initav, pkgstash);
+	pperl_calllist_run(PL_checkav, pkgstash);
+	pperl_calllist_run(PL_initav, pkgstash);
 
 	PUTBACK;
 	FREETMPS;
@@ -595,8 +604,8 @@ ntt_pperl_eval(SV *code_sv, const char *name, perlenv_t penv,
 	if (SvTRUE(ERRSV)) {
 		SvREFCNT_dec(anonsub);
 		result->pperl_errmsg = SvPVX(ERRSV);
-		ntt_log(NTT_LOG_DEBUG, "%s(%s): %s",
-			__func__, name, result->pperl_errmsg);
+		pperl_log(LOG_DEBUG, "%s(%s): %s",
+			  __func__, name, result->pperl_errmsg);
 
 		return (NULL);		
 	}
@@ -608,14 +617,14 @@ ntt_pperl_eval(SV *code_sv, const char *name, perlenv_t penv,
 
 
 /*!
- * ntt_pperl_load() - Load perl code into interpreter for later execution.
+ * pperl_load() - Load perl code into interpreter for later execution.
  *
  *	@param	interp		Perl interpreter to load the code into;
  *				the code will always be executed in this
  *				interpreter.
  *
  *	@param	name		Text describing the code being loaded.  See
- *				explanation under ntt_pperl_eval().
+ *				explanation under pperl_eval().
  *
  *	@param	penv		Environment variable list to populate \%ENV
  *				with while loading code.  This is primary for
@@ -637,8 +646,8 @@ ntt_pperl_eval(SV *code_sv, const char *name, perlenv_t penv,
  *		was non-NULL, it is populated with the cause of the failure.
  */
 perlcode_t
-ntt_pperl_load(perlinterp_t interp, const char *name, perlenv_t penv,
-	       const char *code, size_t codelen, struct perlresult *result)
+pperl_load(perlinterp_t interp, const char *name, perlenv_t penv,
+	   const char *code, size_t codelen, struct perlresult *result)
 {
 	static u_int pkgid = 0;
 	PerlInterpreter *orig_perl;
@@ -686,7 +695,7 @@ ntt_pperl_load(perlinterp_t interp, const char *name, perlenv_t penv,
 	sv_catpvn(code_sv, code, codelen);
 	sv_catpv(code_sv, "\n}\n");
 
-	anonsub = ntt_pperl_eval(code_sv, name, penv, result);
+	anonsub = pperl_eval(code_sv, name, penv, result);
 
 	/*
 	 * If we failed to evaluate the code, propogate the error back to our
@@ -711,12 +720,8 @@ ntt_pperl_load(perlinterp_t interp, const char *name, perlenv_t penv,
 	 * Construct perlcode_t data structure to refer to the compiled perl
 	 * code.
 	 */
-	pc = malloc(sizeof(struct perlcode));
-	if (pc == NULL)
-		fatal(EX_OSERR, "malloc: %m");
-	pc->pc_name = strdup(name);
-	if (pc->pc_name == NULL)
-		fatal(EX_OSERR, "strdup: %m");
+	pc = pperl_malloc(sizeof(struct perlcode));
+	pc->pc_name = pperl_strdup(name);
 
 	LIST_INSERT_HEAD(&interp->pi_code_head, pc, pc_link);
 	pc->pc_interp = interp;
@@ -732,9 +737,9 @@ ntt_pperl_load(perlinterp_t interp, const char *name, perlenv_t penv,
 
 
 /*!
- * ntt_pperl_run() - Execute loaded perl code.
+ * pperl_run() - Execute loaded perl code.
  *
- *	Runs code loaded via ntt_pperl_load() with \@ARGV and \%ENV populated
+ *	Runs code loaded via pperl_load() with \@ARGV and \%ENV populated
  *	from the values passed via \a pargs and \a penv.
  *
  *	@param	pc		The perl code to run.
@@ -752,14 +757,14 @@ ntt_pperl_load(perlinterp_t interp, const char *name, perlenv_t penv,
  *				perl code.
  */
 void
-ntt_pperl_run(const perlcode_t pc, perlargs_t pargs, perlenv_t penv,
+pperl_run(const perlcode_t pc, perlargs_t pargs, perlenv_t penv,
 	      struct perlresult *result)
 {
 	const perlinterp_t interp = pc->pc_interp;
 	PerlInterpreter *orig_perl;
 	dSP;
 
-	ntt_pperl_result_init(&result);
+	pperl_result_init(&result);
 
 	/*
 	 * Save perl's notion of the "current" interpreter and switch to
@@ -774,9 +779,9 @@ ntt_pperl_run(const perlcode_t pc, perlargs_t pargs, perlenv_t penv,
 	ENTER;
 	SAVETMPS;
 
-	ntt_pperl_setvars(pc->pc_name);
-	ntt_pperl_env_populate(penv);
-	ntt_pperl_args_populate(pargs);
+	pperl_setvars(pc->pc_name);
+	pperl_env_populate(penv);
+	pperl_args_populate(pargs);
 
 	/*
 	 * Run the code.
@@ -794,8 +799,8 @@ ntt_pperl_run(const perlcode_t pc, perlargs_t pargs, perlenv_t penv,
 		 *     postprocess the error messages to make them more useful.
 		 */
 		result->pperl_errmsg = SvPVX(ERRSV);
-		ntt_log(NTT_LOG_DEBUG, "%s(%s): %s",
-			__func__, pc->pc_name, result->pperl_errmsg);
+		pperl_log(LOG_DEBUG, "%s(%s): %s",
+			  __func__, pc->pc_name, result->pperl_errmsg);
 	}
 
 	/* Restore perl's notion of the "current" interpreter. */
@@ -804,8 +809,8 @@ ntt_pperl_run(const perlcode_t pc, perlargs_t pargs, perlenv_t penv,
 
 
 /*!
- * ntt_pperl_calllist_clear() - Remove all references to the given package
- *				from a perl call list.
+ * pperl_calllist_clear() - Remove all references to the given package from a
+ *			    perl call list.
  *
  *	Perl maintains a number of a special arrays called call lists to
  *	represent pseudo-subroutine code blocks.  This routine iterates over
@@ -817,7 +822,7 @@ ntt_pperl_run(const perlcode_t pc, perlargs_t pargs, perlenv_t penv,
  *				remove.
  */
 void
-ntt_pperl_calllist_clear(AV *calllist, const HV *pkgstash)
+pperl_calllist_clear(AV *calllist, const HV *pkgstash)
 {
 	SV *sv;
 	int len;
@@ -854,14 +859,14 @@ ntt_pperl_calllist_clear(AV *calllist, const HV *pkgstash)
 
 
 /*!
- * ntt_pperl_calllist_run() - Run all call list entries which are in the given
+ * pperl_calllist_run() - Run all call list entries which are in the given
  *			      perl package.
  *
- *	This routine is similar to ntt_pperl_calllist_clear() except that the
+ *	This routine is similar to pperl_calllist_clear() except that the
  *	entries in the call list are run before being removed.
  *
  *	By default, perl executes all BEGIN code blocks in its compilation
- *	step (in our case, in ntt_pperl_load()).  And perl executes all END
+ *	step (in our case, in pperl_load()).  And perl executes all END
  *	code blocks when the interpreter is destroyed by perl_destroy().
  *	However, typically, persistent perl environments never execute CHECK
  *	or INIT blocks by virtue of the fact that the code blocks have not yet
@@ -871,7 +876,7 @@ ntt_pperl_calllist_clear(AV *calllist, const HV *pkgstash)
  *	persistent perl interpreters, I believe), explictely call END blocks
  *	before code is unloaded from the interpreter (not just when the
  *	interpreter is destroyed), and allows code to be unloaded from an
- *	interpreter without leaking memory (see notes in ntt_pperl_unload()).
+ *	interpreter without leaking memory (see notes in pperl_unload()).
  *
  *	@param	calllist	Perl call list to iterate over.
  *
@@ -882,11 +887,11 @@ ntt_pperl_calllist_clear(AV *calllist, const HV *pkgstash)
  *		exception.  The caller should check for this condition.
  *
  *	@note	Must be called within an ENTER/LEAVE block. 
- *		ntt_pperl_setvars() should have already been called to setup
+ *		pperl_setvars() should have already been called to setup
  *		the perl environment.
  */
 void
-ntt_pperl_calllist_run(AV *calllist, const HV *pkgstash)
+pperl_calllist_run(AV *calllist, const HV *pkgstash)
 {
 	SV *sv;
 	int len;
@@ -940,7 +945,7 @@ ntt_pperl_calllist_run(AV *calllist, const HV *pkgstash)
 
 
 /*!
- * ntt_pperl_unload() - Unload code from a perl interpreter.
+ * pperl_unload() - Unload code from a perl interpreter.
  *
  *	@warning
  *		If any symbols were imported from other packages, the memory
@@ -957,7 +962,7 @@ ntt_pperl_calllist_run(AV *calllist, const HV *pkgstash)
  *	@post	*pcp is set to NULL.
  */
 void
-ntt_pperl_unload(perlcode_t *pcp)
+pperl_unload(perlcode_t *pcp)
 {
 	perlcode_t pc = *pcp;
 	PerlInterpreter *orig_perl;
@@ -976,25 +981,25 @@ ntt_pperl_unload(perlcode_t *pcp)
 	 * exception, because we are going to unload the code anyway.
 	 */
 	ENTER;
-	ntt_pperl_setvars(pc->pc_name);
-	ntt_pperl_calllist_run(PL_endav, pc->pc_pkgstash);
+	pperl_setvars(pc->pc_name);
+	pperl_calllist_run(PL_endav, pc->pc_pkgstash);
 	LEAVE;
 
 	/*
 	 * Ensure there are no references to BEGIN, CHECK, or INIT blocks in
 	 * the code's package.
 	 */
-	ntt_pperl_calllist_clear(PL_beginav, pc->pc_pkgstash);
-	ntt_pperl_calllist_clear(PL_checkav, pc->pc_pkgstash);
-	ntt_pperl_calllist_clear(PL_initav, pc->pc_pkgstash);
+	pperl_calllist_clear(PL_beginav, pc->pc_pkgstash);
+	pperl_calllist_clear(PL_checkav, pc->pc_pkgstash);
+	pperl_calllist_clear(PL_initav, pc->pc_pkgstash);
 
 	/*
 	 * Perl squirrels away extra references to BEGIN and CHECK blocks.
 	 * Since want to remove all traces of the code being unloaded, we have
 	 * to remove references from perl's secret hiding places too.
 	 */
-	ntt_pperl_calllist_clear(PL_beginav_save, pc->pc_pkgstash);
-	ntt_pperl_calllist_clear(PL_checkav_save, pc->pc_pkgstash);
+	pperl_calllist_clear(PL_beginav_save, pc->pc_pkgstash);
+	pperl_calllist_clear(PL_checkav_save, pc->pc_pkgstash);
 
 	/*
 	 * Perform sanity checking to ensure we have a reference to a
@@ -1038,16 +1043,16 @@ ntt_pperl_unload(perlcode_t *pcp)
 
 
 /*!
- * XS_ntt_pperl_exit() - Non-fatal replacement for perl's exit function.
+ * XS_pperl_exit() - Non-fatal replacement for perl's exit function.
  *
  *	Custom exit routine which is installed as the global "exit" symbol by
- *	ntt_pperl_new().  Converts a call to exit() from perl code into an
+ *	pperl_new().  Converts a call to exit() from perl code into an
  *	exception which can be caught by the calling C code.  This prevents
  *	perl code from accidentally terminating the calling program.
  *
  *	Has to be written as a perl XS extension.
  */
-XS(XS_ntt_pperl_exit)
+XS(XS_pperl_exit)
 {
 	dXSARGS;
 

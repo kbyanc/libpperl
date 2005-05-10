@@ -1,10 +1,20 @@
 /*
- * Copyright (c) 2004 NTT Multimedia Communications Laboratories, Inc.
- * All rights reserved 
+ * Copyright (c) 2004,2005 NTT Multimedia Communications Laboratories, Inc.
+ * All rights reserved
  *
- * Redistribution and use in source and/or binary forms of 
- * this software, with or without modification, are prohibited. 
- * Detailed license terms appear in the file named "COPYRIGHT".
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  *
  * $NTTMCL$
  */
@@ -23,7 +33,6 @@
 #include <EXTERN.h>
 #include <perl.h>
 
-#include "log.h"
 #include "pperl.h"
 #include "pperl_private.h"
 
@@ -32,7 +41,7 @@
 
 
 /*
- * ntt_pperl_args_new() - Initialize an argument list.
+ * pperl_args_new() - Initialize an argument list.
  *
  *	Creates a new argument list, initializing it with the contents of the
  *	given array.
@@ -60,8 +69,7 @@
  *	@return	New argument list.
  */
 perlargs_t
-ntt_pperl_args_new(perlinterp_t interp, bool tainted, int argc,
-		   const char **argv)
+pperl_args_new(perlinterp_t interp, bool tainted, int argc, const char **argv)
 {
 	perlargs_t pargs;
 	const char **pos;
@@ -76,10 +84,7 @@ ntt_pperl_args_new(perlinterp_t interp, bool tainted, int argc,
 
 	assert(argc >= 0);
 
-	pargs = malloc(sizeof(*pargs));
-	if (pargs == NULL)
-		fatal(EX_OSERR, "malloc: %m");
-
+	pargs = pperl_malloc(sizeof(*pargs));
 	pargs->pa_interp = interp;
 	pargs->pa_tainted = tainted;
 
@@ -88,21 +93,18 @@ ntt_pperl_args_new(perlinterp_t interp, bool tainted, int argc,
 	if (pargs->pa_arglenv_size == 0)
 		pargs->pa_arglenv_size = 4;
 
-	pargs->pa_arglenv = malloc(pargs->pa_arglenv_size * sizeof(size_t));
-	if (pargs->pa_arglenv == NULL)
-		fatal(EX_OSERR, "malloc: %m");
+	pargs->pa_arglenv = pperl_malloc(pargs->pa_arglenv_size *
+					 sizeof(size_t));
 
 	pargs->pa_strbuf_len = 0;
 	pargs->pa_strbuf_size = ROUNDUP(argc * 20, 32);
 	if (pargs->pa_strbuf_size == 0)
 		pargs->pa_strbuf_size = 32;
 
-	pargs->pa_strbuf = malloc(pargs->pa_strbuf_size);
-	if (pargs->pa_strbuf == NULL)
-		fatal(EX_OSERR, "malloc: %m");
+	pargs->pa_strbuf = pperl_malloc(pargs->pa_strbuf_size);
 
 	for (; argc > 0; argc--, argv++)
-		ntt_pperl_args_append(pargs, *argv);
+		pperl_args_append(pargs, *argv);
 
 	LIST_INSERT_HEAD(&interp->pi_args_head, pargs, pa_link);
 
@@ -111,7 +113,7 @@ ntt_pperl_args_new(perlinterp_t interp, bool tainted, int argc,
 
 
 /*
- * ntt_pperl_args_destroy() - Free all memory allocated to an argument list.
+ * pperl_args_destroy() - Free all memory allocated to an argument list.
  *
  *	@param	pargsp		Pointer to argument list to free.
  *
@@ -119,7 +121,7 @@ ntt_pperl_args_new(perlinterp_t interp, bool tainted, int argc,
  *
  */
 void
-ntt_pperl_args_destroy(perlargs_t *pargsp)
+pperl_args_destroy(perlargs_t *pargsp)
 {
 	perlargs_t pargs = *pargsp;
 
@@ -132,14 +134,14 @@ ntt_pperl_args_destroy(perlargs_t *pargsp)
 
 
 /*
- * ntt_pperl_args_append() - Append a string to the given argument list.
+ * pperl_args_append() - Append a string to the given argument list.
  *
  *	@param	pargs		Argument list to extend.
  *
  *	@param	arg		String to append to list.
  */
 void
-ntt_pperl_args_append(perlargs_t pargs, const char *arg)
+pperl_args_append(perlargs_t pargs, const char *arg)
 {
 	char *pos;
 	size_t len;
@@ -153,10 +155,8 @@ ntt_pperl_args_append(perlargs_t pargs, const char *arg)
 	 */
 	if (pargs->pa_argc == pargs->pa_arglenv_size) {
 		pargs->pa_arglenv_size += 4;
-		pargs->pa_arglenv = reallocf(pargs->pa_arglenv,
+		pargs->pa_arglenv = pperl_realloc(pargs->pa_arglenv,
 				pargs->pa_arglenv_size * sizeof(size_t));
-		if (pargs->pa_arglenv == NULL)
-			fatal(EX_OSERR, "malloc: %m");
 	}
 
 	len = strlen(arg);	/* Note we don't include trailing nul. */
@@ -171,10 +171,8 @@ ntt_pperl_args_append(perlargs_t pargs, const char *arg)
 		do {
 			pargs->pa_strbuf_size *= 2;
 		} while (pargs->pa_strbuf_len + len > pargs->pa_strbuf_size);
-		pargs->pa_strbuf = reallocf(pargs->pa_strbuf,
-					    pargs->pa_strbuf_size);
-		if (pargs->pa_strbuf == NULL)
-			fatal(EX_OSERR, "malloc: %m");
+		pargs->pa_strbuf = pperl_realloc(pargs->pa_strbuf,
+						 pargs->pa_strbuf_size);
 	}
 
 	/*
@@ -190,7 +188,7 @@ ntt_pperl_args_append(perlargs_t pargs, const char *arg)
 
 
 /*!
- * ntt_pperl_args_populate() - Populate \@ARGV array from argument list.
+ * pperl_args_populate() - Populate \@ARGV array from argument list.
  *
  *	Replaces the contents of \@ARGV array in the current interpreter
  *	with the strings in the specified argument list.
@@ -199,7 +197,7 @@ ntt_pperl_args_append(perlargs_t pargs, const char *arg)
  *				If NULL, \@ARGV is set to an empty array.
  */
 void
-ntt_pperl_args_populate(perlargs_t pargs)
+pperl_args_populate(perlargs_t pargs)
 {
 	AV *perlargv;
 	SV *arg_sv;

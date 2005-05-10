@@ -1,10 +1,20 @@
 /*
  * Copyright (c) 2004,2005 NTT Multimedia Communications Laboratories, Inc.
- * All rights reserved 
+ * All rights reserved
  *
- * Redistribution and use in source and/or binary forms of 
- * this software, with or without modification, are prohibited. 
- * Detailed license terms appear in the file named "COPYRIGHT".
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  *
  * $NTTMCL$
  */
@@ -17,6 +27,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sysexits.h>
+#include <syslog.h>
 #include <unistd.h>
 
 #define	HAS_BOOL	/* We use stdbool's bool type rather than perl's. */
@@ -24,21 +35,20 @@
 #include <perl.h>
 #include <perliol.h>
 
-#include "log.h"
 #include "pperl.h"
 #include "pperl_private.h"
 
 
-static IV	 ntt_PerlIO_pushed(pTHX_ PerlIO *f, const char *mode, SV *arg,
-				   PerlIO_funcs *tab);
-static PerlIO	*ntt_PerlIO_open(pTHX_ PerlIO_funcs *self,
-				 PerlIO_list_t *layers, IV n, const char *mode,
-				 int fd, int imode, int perm, PerlIO *f,
-				 int narg, SV **args);
-static IV	 ntt_PerlIO_close(pTHX_ PerlIO *f);
-static SSize_t	 ntt_PerlIO_read(pTHX_ PerlIO *f, void *vbuf, Size_t count);
-static SSize_t	 ntt_PerlIO_write(pTHX_ PerlIO *f, const void *vbuf,
-				  Size_t count);
+static IV	 pperl_PerlIO_pushed(pTHX_ PerlIO *f, const char *mode,
+				     SV *arg, PerlIO_funcs *tab);
+static PerlIO	*pperl_PerlIO_open(pTHX_ PerlIO_funcs *self,
+				   PerlIO_list_t *layers, IV n,
+				   const char *mode, int fd, int imode,
+				   int perm, PerlIO *f, int narg, SV **args);
+static IV	 pperl_PerlIO_close(pTHX_ PerlIO *f);
+static SSize_t	 pperl_PerlIO_read(pTHX_ PerlIO *f, void *vbuf, Size_t count);
+static SSize_t	 pperl_PerlIO_write(pTHX_ PerlIO *f, const void *vbuf,
+				    Size_t count);
 
 
 /*
@@ -53,24 +63,24 @@ struct pperl_io_layer {
 /*
  * Table of PerlIO methods for our layer.
  */
-static PerlIO_funcs ntt_pperl_io_funcs = {
+static PerlIO_funcs pperl_io_funcs = {
 	.fsize		= sizeof(PerlIO_funcs),
 	.name		= ignoreconst(PPERL_IOLAYER),
 	.size		= sizeof(struct pperl_io_layer),
 	.kind		= PERLIO_K_RAW,
-	.Pushed		= ntt_PerlIO_pushed,
+	.Pushed		= pperl_PerlIO_pushed,
 	.Popped		= PerlIOBase_popped,
-	.Open		= ntt_PerlIO_open,
+	.Open		= pperl_PerlIO_open,
 	.Binmode	= PerlIOBase_binmode,
 	.Getarg		= NULL,
 	.Fileno		= PerlIOBase_noop_fail,
 	.Dup		= NULL,
-	.Read		= ntt_PerlIO_read,
+	.Read		= pperl_PerlIO_read,
 	.Unread		= PerlIOBase_unread,
-	.Write		= ntt_PerlIO_write,
+	.Write		= pperl_PerlIO_write,
 	.Seek		= NULL,
 	.Tell		= NULL,
-	.Close		= ntt_PerlIO_close,
+	.Close		= pperl_PerlIO_close,
 	.Flush		= NULL,
 	.Fill		= PerlIOBase_noop_fail,
 	.Eof		= PerlIOBase_eof,
@@ -86,27 +96,27 @@ static PerlIO_funcs ntt_pperl_io_funcs = {
 
 
 /*!
- * ntt_pperl_io_init() - Initialize support for intercepting I/O requests.
+ * pperl_io_init() - Initialize support for intercepting I/O requests.
  *
  *	Defines a new PerlIO layer for providing callbacks for intercepting
  *	reads and writes to I/O handles.
  */
 void
-ntt_pperl_io_init(void)
+pperl_io_init(void)
 {
 	dTHX;
 
-	PerlIO_define_layer(aTHX_ &ntt_pperl_io_funcs);
+	PerlIO_define_layer(aTHX_ &pperl_io_funcs);
 }
 
 
 /*!
- * ntt_PerlIO_pushed() - PerlIO callback called whenever our I/O layer is
- *			 applied to a I/O handle.
+ * pperl_PerlIO_pushed() - PerlIO callback called whenever our I/O layer is
+ *			   applied to a I/O handle.
  *
  *	See perliol(1) for a description of the callback interface and
  *	arguments.  We pass the address of the perlio structure allocated
- *	in ntt_pperl_io_override() via the \a arg argument.  Once we extract
+ *	in pperl_io_override() via the \a arg argument.  Once we extract
  *	this address and store it in the layer's per-instance data, we call
  *	the PerlIO base class's pushed() method to perform the remainder of
  *	the expected functionality.
@@ -116,8 +126,8 @@ ntt_pperl_io_init(void)
  *	structure for future reference.
  */
 IV
-ntt_PerlIO_pushed(pTHX_ PerlIO *f, const char *mode, SV *arg,
-		  PerlIO_funcs *tab)
+pperl_PerlIO_pushed(pTHX_ PerlIO *f, const char *mode, SV *arg,
+		    PerlIO_funcs *tab)
 {
 	IV code;
 	struct pperl_io_layer *layer = PerlIOSelf(f, struct pperl_io_layer);
@@ -127,7 +137,7 @@ ntt_PerlIO_pushed(pTHX_ PerlIO *f, const char *mode, SV *arg,
 	 * Ensure that no arguments were passed to our layer.
 	 */
 	if (arg == NULL) {
-		Perl_croak(aTHX_ "argument required for ntt_perl layer");
+		Perl_croak(aTHX_ "argument required for pperl I/O layer");
 		errno = EINVAL;
 		return (-1);
 	}
@@ -147,25 +157,26 @@ ntt_PerlIO_pushed(pTHX_ PerlIO *f, const char *mode, SV *arg,
 
 
 /*!
- * ntt_PerlIO_open() - PerlIO callback for opening an I/O handle with our layer.
+ * pperl_PerlIO_open() - PerlIO callback for opening an I/O handle with our
+ *			 layer.
  *
  *	See perliol(1) for a description of the callback interface and
  *	arguments.  We close the handle if it was already open (reopen()
  *	semantics) and then call PerlIO_push (which then calls our
- *	ntt_PerlIO_pushed() callback) to complete the open.
+ *	pperl_PerlIO_pushed() callback) to complete the open.
  */
 PerlIO *
-ntt_PerlIO_open(pTHX_
-		PerlIO_funcs *self,
-		PerlIO_list_t *layers __unused,
-		IV n __unused,
-		const char *mode,
-		int fd __unused,
-		int imode __unused,
-		int perm __unused,
-		PerlIO *old,
-		int narg __unused,
-		SV **args)
+pperl_PerlIO_open(pTHX_
+		  PerlIO_funcs *self,
+		  PerlIO_list_t *layers __unused,
+		  IV n __unused,
+		  const char *mode,
+		  int fd __unused,
+		  int imode __unused,
+		  int perm __unused,
+		  PerlIO *old,
+		  int narg __unused,
+		  SV **args)
 {
 	PerlIO *f;
 
@@ -186,14 +197,14 @@ ntt_PerlIO_open(pTHX_
 
 
 /*!
- * ntt_PerlIO_close() - PerlIO callback for closing an I/O handle.
+ * pperl_PerlIO_close() - PerlIO callback for closing an I/O handle.
  *
  *	See perliol(1) for a description of the callback interface and
  *	arguments.  Invokes any caller-specified on-close callback for the
  *	I/O handle before closing the handle and freeing our perlio structure.
  */
 IV
-ntt_PerlIO_close(pTHX_ PerlIO *f)
+pperl_PerlIO_close(pTHX_ PerlIO *f)
 {
 	struct pperl_io_layer *layer = PerlIOSelf(f, struct pperl_io_layer);
 	struct perlio *pio = layer->pil_pio;
@@ -204,14 +215,14 @@ ntt_PerlIO_close(pTHX_ PerlIO *f)
 
 	code = PerlIOBase_close(f);
 
-	ntt_pperl_io_destroy(&pio);
+	pperl_io_destroy(&pio);
 
 	return (code);
 }
 
 
 /*!
- * ntt_PerlIO_read() - PerlIO callback for reading from an I/O handle.
+ * pperl_PerlIO_read() - PerlIO callback for reading from an I/O handle.
  *
  *	See perliol(1) for a description of the callback interface and
  *	arguments.  Passes the request to the caller-specified on-read
@@ -220,7 +231,7 @@ ntt_PerlIO_close(pTHX_ PerlIO *f)
  *	written into the buffer.
  */
 SSize_t
-ntt_PerlIO_read(pTHX_ PerlIO *f, void *vbuf, Size_t count)
+pperl_PerlIO_read(pTHX_ PerlIO *f, void *vbuf, Size_t count)
 {
 	struct pperl_io_layer *layer = PerlIOSelf(f, struct pperl_io_layer);
 	struct perlio *pio = layer->pil_pio;
@@ -231,7 +242,7 @@ ntt_PerlIO_read(pTHX_ PerlIO *f, void *vbuf, Size_t count)
 
 
 /*!
- * ntt_PerlIO_write() - PerlIO callback for writing to an I/O handle.
+ * pperl_PerlIO_write() - PerlIO callback for writing to an I/O handle.
  *
  *	See perliol(1) for a description of the callback interface and
  *	arguments.  Passes the request to the caller-specified on-write
@@ -240,7 +251,7 @@ ntt_PerlIO_read(pTHX_ PerlIO *f, void *vbuf, Size_t count)
  *	be the actual number of bytes consumed.
  */
 SSize_t
-ntt_PerlIO_write(pTHX_ PerlIO *f, const void *vbuf, Size_t count)
+pperl_PerlIO_write(pTHX_ PerlIO *f, const void *vbuf, Size_t count)
 {
 	struct pperl_io_layer *layer = PerlIOSelf(f, struct pperl_io_layer);
 	struct perlio *pio = layer->pil_pio;
@@ -251,7 +262,7 @@ ntt_PerlIO_write(pTHX_ PerlIO *f, const void *vbuf, Size_t count)
 
 
 /*!
- * ntt_pperl_io_override() - Intercept I/O for a perl I/O handle.
+ * pperl_io_override() - Intercept I/O for a perl I/O handle.
  *
  *	Allows a persistent perl interpreter to override the read and write
  *	functions of a perl I/O handle such that it can provide its own
@@ -294,11 +305,11 @@ ntt_PerlIO_write(pTHX_ PerlIO *f, const void *vbuf, Size_t count)
  *				\a onClose when they are invoked.
  */
 void
-ntt_pperl_io_override(perlinterp_t interp, const char *name,
-		      ntt_pperl_io_read_t *onRead,
-		      ntt_pperl_io_write_t *onWrite,
-		      ntt_pperl_io_close_t *onClose,
-		      intptr_t data)
+pperl_io_override(perlinterp_t interp, const char *name,
+		  pperl_io_read_t *onRead,
+		  pperl_io_write_t *onWrite,
+		  pperl_io_close_t *onClose,
+		  intptr_t data)
 {
 	struct perlio *pio;
 	const char *openstr;
@@ -318,9 +329,7 @@ ntt_pperl_io_override(perlinterp_t interp, const char *name,
 	/*
 	 * Allocate and populate perlio structure.
 	 */
-	pio = malloc(sizeof(*pio));
-	if (pio == NULL)
-		fatal(EX_OSERR, "malloc: %m");
+	pio = pperl_malloc(sizeof(*pio));
 	pio->pio_onRead = onRead;
 	pio->pio_onWrite = onWrite;
 	pio->pio_onClose = onClose;
@@ -333,7 +342,7 @@ ntt_pperl_io_override(perlinterp_t interp, const char *name,
 
 	/*
 	 * Create a perl scalar to pass the address of the perlio structure
-	 * through Perl_do_open9() abstraction to ntt_PerlIO_open().
+	 * through Perl_do_open9() abstraction to pperl_PerlIO_open().
 	 */
 	sv = sv_newmortal();
 	sv_setiv(sv, (IV)(intptr_t)pio);
@@ -363,8 +372,8 @@ ntt_pperl_io_override(perlinterp_t interp, const char *name,
 
 	if (!Perl_do_open9(aTHX_ handle, ignoreconst(openstr), strlen(openstr),
 			   FALSE, O_WRONLY, 0, Nullfp, sv, 1)) {
-		ntt_log(NTT_LOG_ERROR, "failed to open I/O handle %s: %s",
-			name, SvPV(get_sv("!", TRUE), PL_na));
+		pperl_log(LOG_ERR, "failed to open I/O handle %s: %s",
+			  name, SvPV(get_sv("!", TRUE), PL_na));
 		return;
 	}
 
@@ -373,11 +382,11 @@ ntt_pperl_io_override(perlinterp_t interp, const char *name,
 
 
 /*
- * ntt_pperl_io_destroy() - Free a perlio structure.
+ * pperl_io_destroy() - Free a perlio structure.
  *
  *	Internal routine to free a perlio structure.  Called by
- *	ntt_PerlIO_close() when a handle with our layer is closed by a perl
- *	script.  Also called by ntt_pperl_destroy() when destroying a perl
+ *	pperl_PerlIO_close() when a handle with our layer is closed by a perl
+ *	script.  Also called by pperl_destroy() when destroying a perl
  *	interpreter to free memory allocated to I/O handles in the interpreter
  *	being destroyed.
  *
@@ -388,7 +397,7 @@ ntt_pperl_io_override(perlinterp_t interp, const char *name,
  *	@post	*piop is set to NULL.
  */
 void
-ntt_pperl_io_destroy(perlio_t *piop)
+pperl_io_destroy(perlio_t *piop)
 {
 	perlio_t pio = *piop;
 	PerlIO *f = pio->pio_f;
@@ -396,7 +405,7 @@ ntt_pperl_io_destroy(perlio_t *piop)
 	*piop = NULL;
 
 	/*
-	 * PerlIO_close() will call ntt_PerlIO_close() which will then
+	 * PerlIO_close() will call pperl_PerlIO_close() which will then
 	 * recursively call this routine.  We ignore the recursive call by
 	 * checking the PERLIO_F_OPEN flag which is cleared by PerlIO_close().
 	 */

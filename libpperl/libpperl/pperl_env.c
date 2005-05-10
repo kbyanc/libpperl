@@ -1,10 +1,20 @@
 /*
- * Copyright (c) 2004 NTT Multimedia Communications Laboratories, Inc.
- * All rights reserved 
+ * Copyright (c) 2004,2005 NTT Multimedia Communications Laboratories, Inc.
+ * All rights reserved
  *
- * Redistribution and use in source and/or binary forms of 
- * this software, with or without modification, are prohibited. 
- * Detailed license terms appear in the file named "COPYRIGHT".
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  *
  * $NTTMCL$
  */
@@ -23,13 +33,12 @@
 #include <EXTERN.h>
 #include <perl.h>
 
-#include "log.h"
 #include "pperl.h"
 #include "pperl_private.h"
 
 
 /*!
- * ntt_pperl_env_new() - Initialize an environment list.
+ * pperl_env_new() - Initialize an environment list.
  *
  *	Creates a new environment list, initializing it with the contents of
  *	the given environ(7)-style array of strings.
@@ -58,7 +67,7 @@
  *
  */
 perlenv_t
-ntt_pperl_env_new(perlinterp_t interp, bool tainted, int envc,
+pperl_env_new(perlinterp_t interp, bool tainted, int envc,
 		  const char **envp)
 {
 	PerlInterpreter *orig_perl;
@@ -67,10 +76,7 @@ ntt_pperl_env_new(perlinterp_t interp, bool tainted, int envc,
 	orig_perl = PERL_GET_CONTEXT;
 	PERL_SET_CONTEXT(interp->pi_perl);
 
-	penv = malloc(sizeof(*penv));
-	if (penv == NULL)
-		fatal(EX_OSERR, "malloc: %m");
-
+	penv = pperl_malloc(sizeof(*penv));
 	penv->pe_interp = interp;
 	penv->pe_envhash = newHV();
 	penv->pe_tainted = tainted;
@@ -104,14 +110,14 @@ ntt_pperl_env_new(perlinterp_t interp, bool tainted, int envc,
 
 
 /*!
- * ntt_pperl_env_destroy() - Free all memory allocated to an environment list.
+ * pperl_env_destroy() - Free all memory allocated to an environment list.
  *
  *	@param	penvp		Pointer to environment list to free.
  *
  *	@post	*penvp is set to NULL.
  */
 void
-ntt_pperl_env_destroy(perlenv_t *penvp)
+pperl_env_destroy(perlenv_t *penvp)
 {
 	PerlInterpreter *orig_perl;
 	perlenv_t penv = *penvp;
@@ -129,7 +135,7 @@ ntt_pperl_env_destroy(perlenv_t *penvp)
 
 
 /*!
- * ntt_pperl_env_set() - Add or update a perl environment variable.
+ * pperl_env_set() - Add or update a perl environment variable.
  *
  *	@param	penv		Perl environment variable list to update.
  *
@@ -138,7 +144,7 @@ ntt_pperl_env_destroy(perlenv_t *penvp)
  *	@param	value		Value to assign to the environment variable.
  */
 void
-ntt_pperl_env_set(perlenv_t penv, const char *name, const char *value)
+pperl_env_set(perlenv_t penv, const char *name, const char *value)
 {
 	PerlInterpreter *orig_perl;
 	SV *val_sv;
@@ -156,7 +162,7 @@ ntt_pperl_env_set(perlenv_t penv, const char *name, const char *value)
 
 
 /*!
- * ntt_pperl_env_get() - Lookup value of perl environment variable.
+ * pperl_env_get() - Lookup value of perl environment variable.
  *
  *	@param	penv		Perl environment variable list to query.
  *
@@ -168,7 +174,7 @@ ntt_pperl_env_set(perlenv_t penv, const char *name, const char *value)
  *		environment it is in) is deleted.
  */
 const char *
-ntt_pperl_env_get(const perlenv_t penv, const char *name)
+pperl_env_get(const perlenv_t penv, const char *name)
 {
 	PerlInterpreter *orig_perl;
 	SV **val_svp;
@@ -192,7 +198,7 @@ ntt_pperl_env_get(const perlenv_t penv, const char *name)
 
 
 /*!
- * ntt_pperl_env_unset() - Delete a perl environment variable.
+ * pperl_env_unset() - Delete a perl environment variable.
  *
  *	Removes any environment variable with the specified name from the
  *	environment variable list.  If no variable exists with the given name,
@@ -203,7 +209,7 @@ ntt_pperl_env_get(const perlenv_t penv, const char *name)
  *	@param	name		Name of the environment variable to delete.
  */
 void
-ntt_pperl_env_unset(perlenv_t penv, const char *name)
+pperl_env_unset(perlenv_t penv, const char *name)
 {
 	PerlInterpreter *orig_perl;
 	size_t namelen;
@@ -219,7 +225,7 @@ ntt_pperl_env_unset(perlenv_t penv, const char *name)
 
 
 /*!
- * ntt_pperl_env_populate() - Populate \%ENV hash from environment list.
+ * pperl_env_populate() - Populate \%ENV hash from environment list.
  *
  *	Replaces the contents of the \%ENV hash in the current interpreter
  *	with name/value pairs in the specified environment variable list.
@@ -240,7 +246,7 @@ ntt_pperl_env_unset(perlenv_t penv, const char *name)
  *		environ variable.  Blame perl.
  */
 void
-ntt_pperl_env_populate(perlenv_t penv)
+pperl_env_populate(perlenv_t penv)
 {
 	HV *envhash_hv;
 	HE *entry;
@@ -279,9 +285,7 @@ ntt_pperl_env_populate(perlenv_t penv)
 	 *	 too.
 	 */
 	count = HvUSEDKEYS(GvHVn(PL_envgv)) + 1;
-	newenviron = malloc(count * sizeof(char *));
-	if (newenviron == NULL)
-		fatal(EX_OSERR, "malloc: %m");
+	newenviron = pperl_malloc(count * sizeof(char *));
 	for (i = 0; i < count && environ[i] != NULL; i++) {
 		if (strchr(environ[i], '=') != NULL)
 			newenviron[i] = strdup(environ[i]);
@@ -289,7 +293,7 @@ ntt_pperl_env_populate(perlenv_t penv)
 			asprintf(&newenviron[i], "%s=", environ[i]);
 
 		if (newenviron[i] == NULL)
-			fatal(EX_OSERR, "malloc: %m");
+			pperl_fatal(EX_OSERR, "malloc: %m");
 	}
 	newenviron[i] = NULL;
 

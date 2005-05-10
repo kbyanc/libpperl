@@ -1,20 +1,30 @@
 /*
- * Copyright (c) 2004 NTT Multimedia Communications Laboratories, Inc.
- * All rights reserved 
+ * Copyright (c) 2004,2005 NTT Multimedia Communications Laboratories, Inc.
+ * All rights reserved
  *
- * Redistribution and use in source and/or binary forms of 
- * this software, with or without modification, are prohibited. 
- * Detailed license terms appear in the file named "COPYRIGHT".
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  *
  * $NTTMCL$
  */
 
-#ifndef _INCLUDE_NTTMCL_PPERL_PRIVATE_
-#define _INCLUDE_NTTMCL_PPERL_PRIVATE_
+#ifndef _INCLUDE_LIBPPERL_PRIVATE_
+#define _INCLUDE_LIBPPERL_PRIVATE_
 
 /*
- * Requires <sys/types>, <sys/queue.h>, <perl.h>, and "pperl.h" to be included
- * before this file.
+ * Requires <sys/types.h>, <sys/queue.h>, <perl.h>, and "pperl.h" to be
+ * included before this file.
  */
 
 
@@ -27,8 +37,8 @@
  */
 
 
-#define	PPERL_NAMESPACE "NTTMCL::Persistent"
-#define	PPERL_IOLAYER	"ntt_pperl"
+#define	PPERL_NAMESPACE "libpperl::_private"
+#define	PPERL_IOLAYER	"pperl"
 
 
 /* Macro for removing const poisoning.  Use with extreme caution. */
@@ -55,16 +65,16 @@
  *				$0 from crashing the program.
  *
  *	@param	pi_args_head	Linked-list of perlargs structures so we can
- *				free them when ntt_pperl_destroy() is called.
+ *				free them when pperl_destroy() is called.
  *
  *	@param	pi_code_head	Linked-list of perlcode structures so we can
- *				free them when ntt_pperl_destroy() is called.
+ *				free them when pperl_destroy() is called.
  *
  *	@param	pi_env_head	Linked-list of perlenv structures so we can
- *				free them when ntt_pperl_destroy() is called.
+ *				free them when pperl_destroy() is called.
  *
  *	@param	pi_io_head	Linked-list of perlio structures so we can
- *				free them when ntt_pperl_destroy() is called.
+ *				free them when pperl_destroy() is called.
  */
 struct perlinterp {
 	PerlInterpreter		 *pi_perl;
@@ -92,7 +102,7 @@ struct perlinterp {
  *
  *	@param	pc_sv		Perl reference to the anonymous subroutine
  *				representing the compiled code.  See comments
- *				in ntt_pperl_compile() for details.
+ *				in pperl_compile() for details.
  *
  *	@param	pc_name		Name associated with the code.  This is used
  *				for reporting error messages and is the
@@ -102,7 +112,7 @@ struct perlinterp {
  *				This is used internally for creating a unique
  *				namespace for each piece of code compiled
  *				within a single interpreter.  See
- *				ntt_pperl_compile() for details.
+ *				pperl_compile() for details.
  *
  *	@param	pc_pkgstash	Perl package code was compiled and executes in.
  *
@@ -189,7 +199,7 @@ struct perlargs {
  *	unmodified.
  *
  *	This could be further improved by duplicating the hash into a named
- *	variable inside the NTTMCL::Persistent namespace, reassigning the  
+ *	variable inside the libpperl::_private namespace, reassigning the  
  *	\%ENV global to that hash (like we do for "exit"), and adding magic to
  *	mark the named hash as dirty if it gets modified.  If such logic were
  *	implemented, we would only have to rebuild the named hash from the   
@@ -216,8 +226,8 @@ struct perlenv {
 };
 
 
-extern void	 ntt_pperl_args_populate(perlargs_t pargs);
-extern void	 ntt_pperl_env_populate(perlenv_t penv);
+extern void	 pperl_args_populate(perlargs_t pargs);
+extern void	 pperl_env_populate(perlenv_t penv);
 
 
 /*!
@@ -248,9 +258,9 @@ extern void	 ntt_pperl_env_populate(perlenv_t penv);
  *				the parent interpreter.
  */
 struct perlio {
-	ntt_pperl_io_read_t	*pio_onRead; 
-	ntt_pperl_io_write_t	*pio_onWrite;
-	ntt_pperl_io_close_t	*pio_onClose;
+	pperl_io_read_t		*pio_onRead; 
+	pperl_io_write_t	*pio_onWrite;
+	pperl_io_close_t	*pio_onClose;
 
 	intptr_t		 pio_data;
 
@@ -259,7 +269,12 @@ struct perlio {
 	LIST_ENTRY(perlio)	 pio_link;
 };
 
-extern void	 ntt_pperl_io_init(void);
-extern void	 ntt_pperl_io_destroy(perlio_t *piop);
+extern void	 pperl_io_init(void);
+extern void	 pperl_io_destroy(perlio_t *piop);
+
+
+extern void	*pperl_malloc(size_t size);
+extern void	*pperl_realloc(void *ptr, size_t size);
+extern char	*pperl_strdup(const char *str);
 
 #endif
