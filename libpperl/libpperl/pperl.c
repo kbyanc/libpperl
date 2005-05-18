@@ -119,25 +119,37 @@ pperl_new(const char *procname, enum pperl_newflags flags)
 	default:			;
 	}
 
+	switch (flags & _ARGLOOP_MASK) {
+	case ARGLOOP_NOPRINT:		sbuf_cat(&opt_sb, "-n "); break;
+	case ARGLOOP_PRINT:		sbuf_cat(&opt_sb, "-p "); break;
+	default:			;
+	}
+
 	/*
 	 * Have perl run a no-op script for now.
 	 */
 	sbuf_cat(&opt_sb, "-e;0 ");
 
+	/* Macro for handling boolean options. */
+#define OPTIONFLAG(mask, str)	if ((flags & mask) != 0) sbuf_cat(&opt_sb, str)
+
+	OPTIONFLAG(UNSAFE_ENABLE,	  "-U ");
+
 	/*
 	 * Parse Unicode-related options.  perl_parse() requires -C... to be
 	 * the final command-line argument so this is done last.
 	 */
-#define OPTIONFLAG(mask, str)	if ((flags & mask) != 0) sbuf_cat(&opt_sb, str)
 	OPTIONFLAG(_UNICODE_MASK,	  "-C");
 	OPTIONFLAG(UNICODE_STDIN,	   "I");
 	OPTIONFLAG(UNICODE_STDOUT,	   "O");
 	OPTIONFLAG(UNICODE_INPUT_DEFAULT,  "i");
 	OPTIONFLAG(UNICODE_OUTPUT_DEFAULT, "o");
 	OPTIONFLAG(UNICODE_ARGV,	   "A");
-#undef OPTIONFLAG
 
 	sbuf_finish(&opt_sb);
+
+	return sbuf_data(&opt_sb);
+#undef OPTIONFLAG
 
 	/*
 	 * Contrary to what examples there are of using an embedded perl

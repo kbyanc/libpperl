@@ -83,17 +83,23 @@ enum pperl_newflags {
 	TAINT_FATAL		= 0x00000020,	/*!< -T perl command-line. */
 	_TAINT_MASK		= 0x00000030,
 
-	UNICODE_STDIN		= 0x00000100,	/*!< -CI perl command-line. */
-	UNICODE_STDOUT		= 0x00000200,	/*!< -CO perl command-line. */
-	UNICODE_STDERR		= 0x00000400,	/*!< -CE perl command-line. */
-	UNICODE_STDALL		= 0x00000700,	/*!< -CS perl command-line. */
+	UNSAFE_ENABLE		= 0x00000040,	/*!< -U perl command-line. */
 
-	UNICODE_INPUT_DEFAULT	= 0x00001000,	/*!< -Ci perl command-line. */
-	UNICODE_OUTPUT_DEFAULT	= 0x00002000,	/*!< -Co perl command-line. */
-	UNICODE_IO_DEFAULT	= 0x00003000,	/*!< -CD perl command-line. */
+	ARGLOOP_NOPRINT		= 0x00000100,	/*!< -n perl command-line. */
+	ARGLOOP_PRINT		= 0x00000200,	/*!< -p perl command-line. */
+	_ARGLOOP_MASK		= 0x00000300,
 
-	UNICODE_ARGV		= 0x00004000,	/*!< -CA perl command-line. */
-	_UNICODE_MASK		= 0x00007700
+	UNICODE_STDIN		= 0x00010000,	/*!< -CI perl command-line. */
+	UNICODE_STDOUT		= 0x00020000,	/*!< -CO perl command-line. */
+	UNICODE_STDERR		= 0x00040000,	/*!< -CE perl command-line. */
+	UNICODE_STDALL		= 0x00070000,	/*!< -CS perl command-line. */
+
+	UNICODE_INPUT_DEFAULT	= 0x00100000,	/*!< -Ci perl command-line. */
+	UNICODE_OUTPUT_DEFAULT	= 0x00200000,	/*!< -Co perl command-line. */
+	UNICODE_IO_DEFAULT	= 0x00300000,	/*!< -CD perl command-line. */
+
+	UNICODE_ARGV		= 0x00400000,	/*!< -CA perl command-line. */
+	_UNICODE_MASK		= 0x00770000,
 };
 
 
