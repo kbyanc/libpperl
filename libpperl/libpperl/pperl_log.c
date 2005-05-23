@@ -36,12 +36,12 @@
 #include "pperl_private.h"
 
 
+extern void __pperl_log(int priority, const char *fmt, ...)
+		__attribute__ ((format (printf, 2, 3)));
+extern void __pperl_logv(int priority, const char *fmt, va_list ap);
 extern void __pperl_fatal(int eval, const char *fmt, ...)
 		__attribute__ ((format (printf, 2, 3)));
 
-__weak_reference(syslog, pperl_log);
-__weak_reference(vsyslog, pperl_logv);
-__weak_reference(__pperl_fatal, pperl_fatal);
 
 /*!
  * @fn pperl_log(int priority, const char *fmt, ...)
@@ -56,11 +56,12 @@ __weak_reference(__pperl_fatal, pperl_fatal);
  *	correponding to the current value of the errno global variable.
  *
  *	@note	pperl_log() is actually a weak linker symbol which references
- *		syslog(3) by default.  If program linked against
+ *		__pperl_log() by default.  If program linked against
  *		libpperl defines its own pperl_log() routine, the linker
  *		will cause the symbol to be remapped to that implementation
  *		instead.
  */
+__weak_reference(__pperl_log, pperl_log);
 
 
 /*!
@@ -74,7 +75,7 @@ __weak_reference(__pperl_fatal, pperl_fatal);
  *	default implementations of pperl_log() and pperl_fatal().
  *
  *	@note	pperl_logv() is actually a weak linker symbol which references
- *		vsyslog(3) by default.  If program linked against
+ *		__pperl_logv() by default.  If program linked against
  *		libpperl defines its own pperl_logv() routine, the linker
  *		will cause the symbol to be remapped to that implementation
  *		instead.  Since the default pperl_log() and pperl_fatal()
@@ -82,6 +83,7 @@ __weak_reference(__pperl_fatal, pperl_fatal);
  *		overriding pperl_logv() allows the application to define the
  *		logging behavior of libpperl.
  */
+__weak_reference(__pperl_logv, pperl_logv);
 
 
 /*!
@@ -103,6 +105,35 @@ __weak_reference(__pperl_fatal, pperl_fatal);
  *		will cause the symbol to be remapped to that implementation
  *		instead.
  */
+__weak_reference(__pperl_fatal, pperl_fatal);
+
+
+/*!
+ * __pperl_log() - Default wrapper for pperl_logv().
+ *
+ *	@see pperl_log(), pperl_logv()
+ */
+void
+__pperl_log(int priority, const char *fmt, ...)
+{
+	va_list ap;
+
+	va_start(ap, fmt);
+	pperl_logv(priority, fmt, ap);
+	va_end(ap);
+}
+
+
+/*!
+ * __pperl_logv() - Default logging implementation using vsyslog(3).
+ *
+ *	@see pperl_logv()
+ */
+void
+__pperl_logv(int priority, const char *fmt, va_list ap)
+{
+	vsyslog(priority, fmt, ap);
+}
 
 
 /*!
@@ -125,4 +156,5 @@ __pperl_fatal(int eval, const char *fmt, ...)
 
 	exit(eval);
 }
+
 
