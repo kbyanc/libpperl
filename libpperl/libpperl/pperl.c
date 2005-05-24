@@ -71,6 +71,20 @@ pperl_result_init(struct perlresult **resultp)
 
 
 /*!
+ * pperl_seterr() - Populate result structure from given errno(2) value.
+ */
+void
+pperl_seterr(int errnum, struct perlresult *result)
+{
+	if (result == NULL)
+		return;
+	result->pperl_status = 0;
+	result->pperl_errno = errnum;
+	result->pperl_errmsg = strerror(errnum); /* XXX Not re-entrant. */
+}
+
+
+/*!
  * pperl_new() - Create a new persistent perl interpreter.
  *
  *	Initializes a new perl interpreter for executing perl code in a
@@ -146,10 +160,9 @@ pperl_new(const char *procname, enum pperl_newflags flags)
 	OPTIONFLAG(UNICODE_OUTPUT_DEFAULT, "o");
 	OPTIONFLAG(UNICODE_ARGV,	   "A");
 
-	sbuf_finish(&opt_sb);
-
-	return sbuf_data(&opt_sb);
 #undef OPTIONFLAG
+
+	sbuf_finish(&opt_sb);
 
 	/*
 	 * Contrary to what examples there are of using an embedded perl
@@ -372,9 +385,9 @@ pperl_incpath_add(perlinterp_t interp, const char *path)
  *	@param	modulename	Name of perl module to load (e.g. "File::Sync").
  *
  *	@param	penv		Environment variable list to populate \%ENV
- *				with while loading code.  This is primary for
- *				the benefit of any BEGIN, CHECK, or INIT code
- *				blocks that may run during load.
+ *				with while loading code.  This is primarilly
+ *				for the benefit of any BEGIN, CHECK, or INIT
+ *				code blocks that may run during load.
  *
  *	@param	result		If non-NULL, populated with the result returned
  *				by any perl BEGIN, CHECK, or INIT blocks
@@ -485,6 +498,14 @@ pperl_setvars(const char *procname)
 	}
 
 	/*
+	 * Virtualize the %SIG hash for the running code.
+	 */
+	{
+		GV *sig = gv_fetchpv("SIG", TRUE, SVt_PVHV);
+		save_hptr(&GvHV(sig));	/* local %SIG */
+	}
+
+	/*
 	 * Ensure $$ contains the correct process ID.  This covers the
 	 * possibility that the calling process may fork after calling
 	 * pperl_new().
@@ -533,7 +554,7 @@ pperl_setvars(const char *procname)
  */
 SV *
 pperl_eval(SV *code_sv, const char *name, perlenv_t penv,
-	       struct perlresult *result)
+	   struct perlresult *result)
 {
 	SV *anonsub;
 	HV *pkgstash;
@@ -639,9 +660,9 @@ pperl_eval(SV *code_sv, const char *name, perlenv_t penv,
  *				explanation under pperl_eval().
  *
  *	@param	penv		Environment variable list to populate \%ENV
- *				with while loading code.  This is primary for
- *				the benefit of any BEGIN, CHECK, or INIT code
- *				blocks that may run during load.
+ *				with while loading code.  This is primarilly
+ *				for the benefit of any BEGIN, CHECK, or INIT
+ *				code blocks that may run during load.
  *
  *	@param	code		The perl code to load.  Does not require a
  *				nul-terminator as the length is explicitely

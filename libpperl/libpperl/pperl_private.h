@@ -272,6 +272,7 @@ struct perlio {
 extern void	 pperl_io_init(void);
 extern void	 pperl_io_destroy(perlio_t *piop);
 
+extern void	 pperl_seterr(int errnum, struct perlresult *result);
 
 extern void	*pperl_malloc(size_t size);
 extern void	*pperl_realloc(void *ptr, size_t size);

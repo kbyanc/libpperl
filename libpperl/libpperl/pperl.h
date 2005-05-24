@@ -108,9 +108,14 @@ enum pperl_newflags {
  *
  * Data structure for representing exit status of executed perl code.
  *
- *	@param	pperl_status	Equivalent to perl's \$! variable.
+ *	@param	pperl_status	Equivalent to perl's \$? variable.
  *				Set to parameter perl code called exit() with;
  *				otherwise value is zero.
+ *
+ *	@param	pperl_errno	Equivalent to perl's \$! variable as a numeric
+ *				value (which is the same as the C errno value
+ *				of the library call that failed).  Zero if
+ *				no error occurred.
  *
  *	@param	pperl_result	Equivalent to perl's \$@ variable.
  *				Stringified version of parameter perl code
@@ -118,7 +123,9 @@ enum pperl_newflags {
  */
 struct perlresult {
 	int		 pperl_status;
+	int		 pperl_errno;
 	const char	*pperl_errmsg;
+	intptr_t	 pperl_reserved;
 };
 
 
@@ -197,6 +204,14 @@ extern void		 pperl_run(perlcode_t pc,
 				   perlargs_t pargs, perlenv_t penv,
 				   struct perlresult *result);
 extern void		 pperl_unload(perlcode_t *pcp);
+
+
+extern perlcode_t	 pperl_load_file(perlinterp_t interp, const char *path,
+					 perlenv_t penv,
+					 struct perlresult *result);
+extern perlcode_t	 pperl_load_fd(perlinterp_t interp, const char *name,
+				       perlenv_t penv, int fd,
+				       struct perlresult *result);
 
 
 /*

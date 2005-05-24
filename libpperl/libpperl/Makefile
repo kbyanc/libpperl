@@ -30,6 +30,7 @@ SRCS=		perlxsi.c \
 		pperl.c \
 		pperl_args.c \
 		pperl_env.c \
+		pperl_file.c \
 		pperl_io.c \
 		pperl_log.c \
 		pperl_malloc.c \
