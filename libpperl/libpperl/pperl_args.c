@@ -163,7 +163,7 @@ pperl_args_append(perlargs_t pargs, const char *arg)
 
 	/*
 	 * If there isn't room in the string buffer for the new string, enlarge
-	 * it.  Note that in this case, the size doubling algorithm is used
+	 * it.  Note that in this case, the size doubling algorithm *is* used
 	 * to limit calls to realloc(3) to O(lg n) because we have no idea how
 	 * long the argument strings may be.
 	 */
@@ -250,7 +250,8 @@ pperl_args_populate(perlargs_t pargs)
 	for (i = 0; i < pargs->pa_argc; i++) {
 
 		len = *lenp;
-		arg_sv = newSVpv(pos, len);
+
+		arg_sv = newSVpvn(pos, len);
 		av_store(perlargv, i, arg_sv);
 
 		pos += len;
