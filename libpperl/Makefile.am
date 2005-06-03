@@ -1,0 +1,4 @@
+# $NTTMCL$
+
+SUBDIRS=	libpperl pkgconfig
+

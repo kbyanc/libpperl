@@ -1,0 +1,67 @@
+# $NTTMCL$
+
+  libpperl - Routines for maintaining one (or more) persistent perl
+	     interpreters.
+
+OVERVIEW
+==========
+
+  A persistent perl interpreter is orders of magnitude faster than a
+standard perl interpreter; the improvement is obtained by pre-loading
+perl code, allowing perl to parse and compile the code only once, and
+then running the compiled form multiple times.
+
+  This is the same technique as is used by the popular mod_perl package
+to improve performance of perl CGIs (specifically, the Apache::Registry
+implementation in mod_perl).  As such, many of the same caveats apply:
+http://perl.apache.org/docs/general/perl_reference/perl_reference.html
+
+  As with many (but not all) persistent perl interpreters, perl END
+blocks are only executed when the code is unloaded rather than once per
+time the code is run.  Global variables retain their contents across
+invocations.  Any calls to 'exit' are trapped so that they do not cause
+the process to actually terminate.
+
+  This implementation differs from that of most persistent perl
+interpreters (including mod_perl) in that it *does* invoked perl CHECK
+and INIT blocks at the appropriate time (when the code is initially
+loaded).
+
+
+DEPENDENCIES
+==============
+
+  The following packages are required to build libpperl:
+
+	Package		Minimum Version		FreeBSD Port
+	---------------------------------------------------------------
+	perl5		5.8.4			lang/perl5.8
+
+  In addition, the following packages are not required, but recommended:
+
+	Package		Minimum Version		FreeBSD Port
+	---------------------------------------------------------------
+	pkgconfig	0.17			devel/pkgconfig
+
+
+  The following additional packages are required to build a distfile or
+perform further development of the libpperl library:
+
+	Package		Minimum Version		FreeBSD Port
+	---------------------------------------------------------------
+	autoconf	2.59			devel/autoconf259
+	automake	1.9			devel/automake19
+	libtool		1.5			devel/libtool15
+
+  To build a distfile, run the make-distfile script located under the
+package subdirectory.  It will checkout the latest sources from CVS,
+build the configure script and Makefiles, and tar them all up into a
+ready-to-distribute tar-ball in the current directory.
+
+AUTHORS
+=========
+
+	Kelly Yancey <kelly@nttmcl.com>, <kbyanc@posi.net>
+
+  Please send any bug reports, patches, etc. to Kelly Yancey at one of the
+e-mail addresses listed above.
