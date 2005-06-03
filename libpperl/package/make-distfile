@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-# $kbyanc: libpperl/package/make-distfile,v 1.1 2005/06/03 20:26:37 kelly Exp $
+# $kbyanc: libpperl/package/make-distfile,v 1.2 2005/06/03 20:28:59 kelly Exp $
 # $NTTMCL$
 
 PACKAGE=libpperl
@@ -24,7 +24,7 @@ fi
 (
 	cd $WORKDIR
 	cvs -Q checkout -P ${PACKAGE}
-	( cd ${PACKAGE}; ./autogen.sh )
+	( cd ${PACKAGE}; sh autogen.sh )
 	find -X . -name CVS | xargs rm -r
 	rm -r ${PACKAGE}/package
 	tar -czf $WORKDIR/$NEWDISTFILE ${PACKAGE}
