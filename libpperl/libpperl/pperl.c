@@ -57,7 +57,7 @@ static XS(XS_pperl_exit);
  */
 static struct perlresult dummy_result;
 
-static __inline
+static inline
 void
 pperl_result_init(struct perlresult **resultp)
 {

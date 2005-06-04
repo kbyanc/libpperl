@@ -142,7 +142,7 @@ __BEGIN_DECLS
  *
  *	@param	result		Structure to clear.
  */
-static __inline
+static inline
 void
 pperl_result_clear(struct perlresult *result)
 {
