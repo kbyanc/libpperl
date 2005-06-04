@@ -19,6 +19,8 @@
  * $NTTMCL$
  */
 
+#include <config.h>	/* autoconf */
+
 #include <sys/types.h>
 #include <sys/mman.h>
 #include <sys/queue.h>
@@ -222,7 +224,14 @@ pperl_load_fd_mmap(perlinterp_t interp, const char *name, perlenv_t penv,
 		pperl_seterr(errno, result);
 		return NULL;
 	}
+
+#if defined(HAVE_MADVISE) && defined(MADV_SEQUENTIAL)
+	/*
+	 * Pass a hint to the VM system that we'll only be accessing the
+	 * file sequentially.
+	 */
 	madvise(code, size, MADV_SEQUENTIAL);
+#endif
 
 	/*
 	 * Load the script into the interpreter.
@@ -268,6 +277,7 @@ pperl_load_fd_read(perlinterp_t interp, const char *name, perlenv_t penv,
 		size = PAGE_SIZE;
 
 	code = pperl_malloc(size);
+	codelen = 0;
 
 	/*
 	 * Loop for populating the code buffer with data read from the given
