@@ -225,14 +225,6 @@ pperl_load_fd_mmap(perlinterp_t interp, const char *name, perlenv_t penv,
 		return NULL;
 	}
 
-#if defined(HAVE_MADVISE) && defined(MADV_SEQUENTIAL)
-	/*
-	 * Pass a hint to the VM system that we'll only be accessing the
-	 * file sequentially.
-	 */
-	madvise(code, size, MADV_SEQUENTIAL);
-#endif
-
 	/*
 	 * Load the script into the interpreter.
 	 */
