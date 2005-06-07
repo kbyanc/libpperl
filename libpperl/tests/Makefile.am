@@ -1,0 +1,6 @@
+# $NTTMCL$
+
+SUBDIRS=	args
+
+	
+
