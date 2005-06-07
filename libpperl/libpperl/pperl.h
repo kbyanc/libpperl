@@ -148,8 +148,11 @@ pperl_result_clear(struct perlresult *result)
 {
 	if (result == NULL)
 		return;
+
 	result->pperl_status = 0;
+	result->pperl_errno = 0;
 	result->pperl_errmsg = NULL;
+	result->pperl_reserved = 0;
 }
 
 
