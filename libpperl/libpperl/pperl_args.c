@@ -188,6 +188,30 @@ pperl_args_append(perlargs_t pargs, const char *arg)
 
 
 /*!
+ * pperl_args_append_printf() - Append a printf-formated string to the given
+ *				argument list.
+ *
+ *	Wrapper around pperl_args_append() which constructs the string to
+ *	append to the argument list from a printf-like format and argument
+ *	list.
+ */
+void
+pperl_args_append_printf(perlargs_t pargs, const char *fmt, ...)
+{
+	char *str;
+	va_list ap;
+
+	va_start(ap, fmt);
+	if (vasprintf(&str, fmt, ap) < 0)
+		pperl_fatal(EX_OSERR, "vasprintf: %m");
+	va_end(ap);
+
+	pperl_args_append(pargs, str);
+	free(str);
+}
+
+
+/*!
  * pperl_args_populate() - Populate \@ARGV array from argument list.
  *
  *	Replaces the contents of \@ARGV array in the current interpreter

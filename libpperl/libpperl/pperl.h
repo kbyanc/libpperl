@@ -174,6 +174,9 @@ extern void		 pperl_env_destroy(perlenv_t *penvp);
 extern perlargs_t	 pperl_args_new(perlinterp_t interp, bool tainted,
 					int argc, const char **argv);
 extern void		 pperl_args_append(perlargs_t pargs, const char *arg);
+extern void		 pperl_args_append_printf(perlargs_t pargs,
+						  const char *fmt, ...)
+			     __attribute__ ((format (printf, 2, 3)));
 extern void		 pperl_args_destroy(perlargs_t *pargsp);
 
 
