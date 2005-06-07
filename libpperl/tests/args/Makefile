@@ -12,3 +12,6 @@ args-test: args-test.o
 clean:
 	rm -f args-test args-test.o
 	rm -f *.core
+
+test: args-test
+	./args-test | cmp -s -- - expected.output && echo "args-test: passed"
