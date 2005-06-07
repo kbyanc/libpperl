@@ -14,10 +14,6 @@ AC_CONFIG_AUX_DIR([scripts])
 AM_INIT_AUTOMAKE
 
 # Allow shared libraries to be built using libtool.
-# Note: building shared libraries is to remain disabled by default until the
-#	1.0 release as the API is still subject to change.  I want to avoid
-#	having to bump the library revision endlessly during development.
-AC_DISABLE_SHARED
 AC_PROG_LIBTOOL
 AC_SUBST(LIBTOOL_DEPS)
 
@@ -36,6 +32,7 @@ AC_PATH_PROGS(PERL, [perl5.8 perl5 perl])
 # cannot do anything about:
 #		 -Wshadow
 #		 -Wredundant-decls
+#		 -Wnested-externs
 #
 if test "X$GCC" = "Xyes"; then
 	for i in ${WERROR} -W -Wall	\
@@ -46,12 +43,10 @@ if test "X$GCC" = "Xyes"; then
 		 -Wcast-qual		\
 		 -Wwrite-strings	\
 		 -Wswitch		\
-		 -Wnon-const-format	\
 		 -Wno-format-y2k	\
 		 -Wcast-align		\
 		 -Wchar-subscripts	\
-		 -Winline		\
-		 -Wnested-externs
+		 -Winline
 	do
 		AM_CFLAGS="${AM_CFLAGS} $i"
 	done
@@ -96,11 +91,12 @@ AC_TYPE_SIZE_T
 #     as a cheap replacement for malloc()/read() so the AC_FUNC_MMAP macro is
 #     overkill.
 
-AC_CHECK_FUNCS([dup2 madvise munmap strchr strdup strerror strrchr])
+AC_CHECK_FUNCS([dup2 strchr strdup strerror strrchr])
 
 AC_CONFIG_FILES([
 	Makefile
 	libpperl/Makefile
+	tests/Makefile
 	pkgconfig/Makefile
 	pkgconfig/libpperl.pc
 ])
