@@ -272,6 +272,9 @@ struct perlio {
 extern void	 pperl_io_init(void);
 extern void	 pperl_io_destroy(perlio_t *piop);
 
+extern void	 pperl_calllist_clear(AV *calllist, const HV *pkgstash);
+extern void	 pperl_calllist_run(AV *calllist, const HV *pkgstash);
+
 extern void	 pperl_seterr(int errnum, struct perlresult *result);
 
 extern void	*pperl_malloc(size_t size);
