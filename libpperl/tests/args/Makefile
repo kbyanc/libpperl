@@ -3,8 +3,10 @@
 #
 
 CFLAGS=		-I../../libpperl -Wall -W -O0 -g
-LDFLAGS=	-L/usr/local/lib
+LDFLAGS=	-L../../libpperl/.libs
 LIBS=		-lpperl
+
+all: args-test
 
 args-test: args-test.o
 	$(CC) $(CFLAGS) $(LDFLAGS) $(LIBS) -o $@ $>
