@@ -1,6 +1,7 @@
 # $NTTMCL$
 
-SUBDIRS=	args
+SUBDIRS=	args \
+		calllist
 
 	
 
