@@ -556,6 +556,7 @@ pperl_eval(SV *code_sv, const char *name, perlenv_t penv,
 {
 	SV *anonsub;
 	HV *pkgstash;
+	void *origstart;
 	dSP;			/* Declare local perl stack pointer. */
 
 	pperl_result_init(&result);
@@ -572,7 +573,16 @@ pperl_eval(SV *code_sv, const char *name, perlenv_t penv,
 
 	PUSHMARK(SP);
 
+	/*
+	 * Replace the main program start opcode pointer so that any CHECK or
+	 * INIT subroutine declarations don't generate warnings.  Cache the
+	 * original value so we can restore it later.
+	 */
+	origstart = PL_main_start;
+	PL_main_start = NULL;
+
 	eval_sv(code_sv, G_SCALAR|G_NOARGS|G_EVAL|G_KEEPERR);
+	PL_main_start = origstart;
 
 	SPAGAIN;
 
