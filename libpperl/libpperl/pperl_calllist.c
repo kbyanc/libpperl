@@ -57,14 +57,14 @@ void
 pperl_calllist_clear(AV *calllist, const HV *pkgstash)
 {
 	SV *sv;
-	int len;
+	int max;
 	int i;
 
 	/* Nothing to do if the call list is empty. */
-	if (calllist == NULL || (len = av_len(calllist)) == -1)
+	if (calllist == NULL || (max = av_len(calllist)) == -1)
 		return;
 
-	for (i = 0; i <= len; i++) {
+	for (i = 0; i <= max; i++) {
 
 		/* Retrieve the next element in the call list array. */
 		sv = av_shift(calllist);
@@ -81,18 +81,18 @@ pperl_calllist_clear(AV *calllist, const HV *pkgstash)
 		}
 
 		/*
-		 * Free the call list entry and adjust our record of the array
-		 * length to reflect reality.
+		 * Free the call list entry and adjust our record of the
+		 * maximum array index to reflect reality.
 		 */
 		SvREFCNT_dec(sv);
-		len--;	
+		max--;	
 	}
 }
 
 
 /*!
  * pperl_calllist_run() - Run all call list entries which are in the given
- *			      perl package.
+ *			  perl package.
  *
  *	This routine is similar to pperl_calllist_clear() except that the
  *	entries in the call list are run before being removed.
@@ -126,15 +126,15 @@ void
 pperl_calllist_run(AV *calllist, const HV *pkgstash)
 {
 	SV *sv;
-	int len;
+	int max;
 	int i;
 	dSP;
 
 	/* Nothing to do if the call list is empty. */
-	if (calllist == NULL || (len = av_len(calllist)) == -1)
+	if (calllist == NULL || (max = av_len(calllist)) == -1)
 		return;
 
-	for (i = 0; i <= len; i++) {
+	for (i = 0; i <= max; i++) {
 
 		/* Retrieve the next element in the call list array. */
 		sv = av_shift(calllist);
@@ -144,7 +144,9 @@ pperl_calllist_run(AV *calllist, const HV *pkgstash)
 		/* Check that it is a code reference. */
 		assert (SvTYPE(sv) == SVt_PVCV);
 
-		/* If the code belongs to a different package, put it back. */
+		/*
+		 * If the code belongs to a different package, put it back.
+		 */
 		if (CvSTASH((CV *)sv) != pkgstash) {
 			av_push(calllist, sv);
 			continue;
@@ -167,10 +169,77 @@ pperl_calllist_run(AV *calllist, const HV *pkgstash)
 		}
 
 		/*
-		 * Free the call list entry and adjust our record of the array
-		 * length to reflect reality.
+		 * Free the call list entry and adjust our record of the
+		 * maximum array index to reflect reality.
 		 */
 		SvREFCNT_dec(sv);
-		len--;	
+		max--;	
 	}
+}
+
+
+/*!
+ * pperl_calllist_run_all() - Run all call list entries.
+ *
+ *	This routine is similar to pperl_calllist_run() except that all
+ *	entries in the call list are run, no matter what package they are
+ *	defined in.
+ *
+ *	@param	calllist	Perl call list to iterate over.
+ *
+ *	@post	ERRSV is true if any code block in the call list raised an
+ *		exception.  The caller should check for this condition.
+ *
+ *	@post	The given call list will be empty on return.
+ *
+ *	@note	Must be called within an ENTER/LEAVE block. 
+ *		pperl_setvars() should have already been called to setup
+ *		the perl environment.
+ */
+void
+pperl_calllist_run_all(AV *calllist)
+{
+	SV *sv;
+	int max;
+	dSP;
+
+	/* Nothing to do if the call list is empty. */
+	if (calllist == NULL || (max = av_len(calllist)) == -1)
+		return;
+
+	while (max >= 0) {
+
+		/* Retrieve the next element in the call list array. */
+		sv = av_shift(calllist);
+		if (sv == NULL)
+			continue;
+
+		/* Check that it is a code reference. */
+		assert (SvTYPE(sv) == SVt_PVCV);
+
+		/*
+		 * We always run all END code blocks, but for all other call
+		 * lists we stop calling blocks once one dies.
+		 */
+		if (calllist == PL_endav || !SvTRUE(ERRSV)) {
+			I32 oldscope = PL_scopestack_ix;
+
+			PUSHMARK(SP);
+			call_sv(sv, G_EVAL|G_VOID|G_DISCARD);
+
+			/* Ensure we return the same scope we started in. */
+			while (PL_scopestack_ix > oldscope) {
+				LEAVE;
+			}
+		}
+
+		/*
+		 * Free the call list entry and adjust our record of the
+		 * maximum array index to reflect reality.
+		 */
+		SvREFCNT_dec(sv);
+		max--;
+	}
+
+	assert(av_len(calllist) == -1);
 }

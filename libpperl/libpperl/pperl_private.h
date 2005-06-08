@@ -274,6 +274,7 @@ extern void	 pperl_io_destroy(perlio_t *piop);
 
 extern void	 pperl_calllist_clear(AV *calllist, const HV *pkgstash);
 extern void	 pperl_calllist_run(AV *calllist, const HV *pkgstash);
+extern void	 pperl_calllist_run_all(AV *calllist);
 
 extern void	 pperl_seterr(int errnum, struct perlresult *result);
 

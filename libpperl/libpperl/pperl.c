@@ -630,9 +630,16 @@ pperl_eval(SV *code_sv, const char *name, perlenv_t penv,
 	 * Run any CHECK or INIT blocks defined in the given code.  These are
 	 * run with the same environment already setup for the compilation
 	 * step.
+	 *
+	 * Note that we run all defined CHECK or INIT blocks to ensure that
+	 * we also run blocks defined by any modules loaded by the given code.
+	 * The only blocks that can possibly by in the call lists are those
+	 * defined by the newly-loaded code and newly-loaded modules as all
+	 * other blocks would have already been run, and hence removed from
+	 * the call lists.
 	 */
-	pperl_calllist_run(PL_checkav, pkgstash);
-	pperl_calllist_run(PL_initav, pkgstash);
+	pperl_calllist_run_all(PL_checkav);
+	pperl_calllist_run_all(PL_initav);
 
 	PUTBACK;
 	FREETMPS;
