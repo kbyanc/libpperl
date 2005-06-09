@@ -55,6 +55,8 @@ pperl_malloc(size_t size)
 {
 	void *alloc;
 
+	assert(size > 0);	/* Should never try to allocate 0 bytes. */
+
 	alloc = malloc(size);
 	if (alloc != NULL)
 		return alloc;
@@ -83,6 +85,8 @@ void *
 pperl_realloc(void *ptr, size_t size)
 {
 	void *newptr;
+
+	assert(size > 0);	/* Should never try to allocate 0 bytes. */
 
 	newptr = realloc(ptr, size);
 	if (newptr != NULL)
