@@ -146,6 +146,8 @@ pperl_args_append(perlargs_t pargs, const char *arg)
 	char *pos;
 	size_t len;
 
+	assert(arg != NULL);
+
 	/*
 	 * If the argument vector is full, enlarge it to make room for the
 	 * entry.  The vector is enlarged in multiples of 4 entries to reduce
