@@ -43,10 +43,13 @@
 
 EXTERN_C void	 xs_init _((void));			    /* perlxsi.c */
 
+static perlinterp_t pperl_current_interp(void);
 static void	 pperl_setvars(const char *procname);
 static SV	*pperl_eval(SV *code_sv, const char *name,
 			    perlenv_t penv, struct perlresult *result);
 static XS(XS_pperl_exit);
+static XS(XS_pperl_prologue);
+static XS(XS_pperl_epilogue);
 
 
 /*
@@ -203,21 +206,38 @@ pperl_new(const char *procname, enum pperl_newflags flags)
 	perl_run(perl);
 
 	/*
-	 * Define our own exit function in the PPERL_NAMESPACE and remap the
-	 * global "exit" function to call it instead.  This allows us to
-	 * catch script exits and return them to the calling code rather than
-	 * terminating the calling program.
+	 * Define our own exit function in the PPERL_NAMESPACE_PUBLIC package
+	 * and remap the global "exit" function to call it instead.  This
+	 * allows us to catch script exits and return them to the calling code
+	 * rather than terminating the calling program.
+	 *
+	 * By putting our exit function in the public package, we indicate
+	 * that it is OK for code to call it directly, although they should
+	 * not need to.
+	 *
 	 * Note: Perl's prototype for newXS is missing const specifiers for
 	 *	 the string arguments even though they are really constant.
 	 */
-	newXS(ignoreconst(PPERL_NAMESPACE "::exit"), XS_pperl_exit,
+	newXS(ignoreconst(PPERL_NAMESPACE_PUBLIC "::exit"), XS_pperl_exit,
 	      ignoreconst(__FILE__));
 	{
-		/* *CORE::GLOBAL::exit = \&libpperl::_private::exit; */
+		/* *CORE::GLOBAL::exit = \&libpperl::exit; */
 		GV *gv = gv_fetchpv("CORE::GLOBAL::exit", TRUE, SVt_PVCV);
-		GvCV(gv) = get_cv(PPERL_NAMESPACE "::exit", TRUE);
+		GvCV(gv) = get_cv(PPERL_NAMESPACE_PUBLIC "::exit", TRUE);
 		GvIMPORTED_CV_on(gv);
 	}
+
+	/*
+	 * Define routines so perl code can specify subroutines to be run
+	 * before and after any code blocks are run.  Since BEGIN and END
+	 * blocks are only run once, when code is loaded into or unloaded
+	 * from the interpreter, we maintain our own "prologue" and "epilogue"
+	 * call lists to define per-run preprocessing and postprocessing.
+	 */
+	newXSproto(ignoreconst(PPERL_NAMESPACE_PUBLIC "::prologue"),
+		   XS_pperl_prologue, ignoreconst(__FILE__), "&");
+	newXSproto(ignoreconst(PPERL_NAMESPACE_PUBLIC "::epilogue"),
+		   XS_pperl_epilogue, ignoreconst(__FILE__), "&");
 
 	/*
 	 * Now that the perl interpreter is initialized, construct our local
@@ -226,6 +246,8 @@ pperl_new(const char *procname, enum pperl_newflags flags)
 	interp = pperl_malloc(sizeof(*interp));
 	interp->pi_perl = perl;
 	interp->pi_alloc_argv = argv;
+	interp->pi_prologue_av = newAV();
+	interp->pi_epilogue_av = newAV();
 	LIST_INIT(&interp->pi_args_head);
 	LIST_INIT(&interp->pi_code_head);
 	LIST_INIT(&interp->pi_env_head);
@@ -243,9 +265,89 @@ pperl_new(const char *procname, enum pperl_newflags flags)
 		sv_setpv_mg(GvSV(zero), procname);
 	}
 
+	/*
+	 * Record a back-pointer to our interpreter state information inside
+	 * the perl interpreter itself.  This is needed so that our XS hooks
+	 * can obtain the state pointer of the calling interpreter.
+	 * See pperl_current_interp().
+	 */
+	{
+		SV *sv = get_sv(PPERL_NAMESPACE_PRIVATE "::_interp", TRUE);
+		sv_setiv(sv, (IV)(intptr_t)interp);
+		SvREADONLY_on(sv);
+	}
+
 	pperl_log(LOG_DEBUG, "perl interpreter initialized (%p)", interp);
 
 	return (interp);
+}
+
+
+/*!
+ * pperl_current_interp() - Lookup interpreter state pointer based on current
+ *			    perl context.
+ *
+ *	Retrieves the pointer stored in the libpperl::_private::_interp
+ *	variable in the current perl context.  Converts the value back to
+ *	a C pointer and returns it.  Basic sanity checking is performed, but
+ *	it is possible for an intentionally malicious program to circumvent
+ *	the checks (e.g. by disabling the READONLY flag on _interp, changing
+ *	its value, and then re-enabling READONLY).
+ *
+ *	@returns Pointer to libpperl interpreter state record.
+ */
+perlinterp_t
+pperl_current_interp(void)
+{
+	perlinterp_t interp;
+	SV *sv;
+
+	/*
+	 * Look for the _interp variable in our private perl namespace.
+	 * Verify that the value is still the same type as we created it:
+	 * specifically, a read-only integer.
+	 */
+	sv = get_sv(PPERL_NAMESPACE_PRIVATE "::_interp", FALSE);
+	if (sv == NULL) {
+		/* XXX Can this happen in the "use threads" environment? */
+		pperl_log(LOG_WARNING,
+			  "unknown interpreter; %s value not present",
+			  PPERL_NAMESPACE_PRIVATE "::_interp");
+		return NULL;
+	}
+	if (!SvIOK(sv) || !SvREADONLY(sv)) {
+		pperl_log(LOG_ERR,
+			  "libpperl state corrupted; %s value wrong type",
+			  PPERL_NAMESPACE_PRIVATE "::_interp");
+		return NULL;
+	}
+
+	/*
+	 * The _interp variable looks plausible; convert its value back into
+	 * a pointer.
+	 */
+	interp = (perlinterp_t)(intptr_t)SvIVX(sv);
+	if (interp == NULL) {
+		pperl_log(LOG_ERR,
+			  "libpperl state corrupted; %s value is NULL",
+			  PPERL_NAMESPACE_PRIVATE "::_interp");
+		return NULL;
+	}
+
+	/*
+	 * Double-check that the interpreter state refers to the current perl
+	 * context.  If not, it is a strong indication that the pointer
+	 * recorded in _interp has been corrupted and we are darn lucky we
+	 * didn't seg-fault when we dereferenced it.
+	 */
+	if (interp->pi_perl != PERL_GET_CONTEXT) {
+		pperl_log(LOG_ERR,
+			  "libpperl state corrupted; %s value incorrect",
+			  PPERL_NAMESPACE_PRIVATE "::_interp");
+		return NULL;
+	}
+
+	return interp;
 }
 
 
@@ -277,6 +379,12 @@ pperl_destroy(perlinterp_t *interpp)
 	perl = interp->pi_perl;
 	orig_perl = PERL_GET_CONTEXT;
 	PERL_SET_CONTEXT(perl);
+
+	assert(SvREFCNT(interp->pi_prologue_av) == 1);
+	SvREFCNT_dec(interp->pi_prologue_av);
+
+	assert(SvREFCNT(interp->pi_epilogue_av) == 1);
+	SvREFCNT_dec(interp->pi_epilogue_av);
 
 	while (!LIST_EMPTY(&interp->pi_code_head)) {
 		code = LIST_FIRST(&interp->pi_code_head);
@@ -638,8 +746,11 @@ pperl_eval(SV *code_sv, const char *name, perlenv_t penv,
 	 * other blocks would have already been run, and hence removed from
 	 * the call lists.
 	 */
-	pperl_calllist_run_all(PL_checkav);
-	pperl_calllist_run_all(PL_initav);
+	pperl_calllist_run(PL_checkav, NULL, RUN_ALL);
+	pperl_calllist_clear(PL_checkav, NULL);
+
+	pperl_calllist_run(PL_initav, NULL, RUN_ALL);
+	pperl_calllist_clear(PL_initav, NULL);
 
 	PUTBACK;
 	FREETMPS;
@@ -739,7 +850,8 @@ pperl_load(perlinterp_t interp, const char *name, perlenv_t penv,
 	 *	 mmap(2)'ed from a file).
 	 */
 	code_sv = newSV(codelen + 100);
-	sv_catpvf(code_sv, "package %s::_p%08X; sub {\n", PPERL_NAMESPACE, pkgid);
+	sv_catpvf(code_sv, "package %s::_p%08X; sub {\n",
+			   PPERL_NAMESPACE_PRIVATE, pkgid);
 	sv_catpvn(code_sv, code, codelen);
 	sv_catpv(code_sv, "\n}\n");
 
@@ -832,10 +944,27 @@ pperl_run(const perlcode_t pc, perlargs_t pargs, perlenv_t penv,
 	pperl_args_populate(pargs);
 
 	/*
-	 * Run the code.
+	 * Run any prologue hooks declared in the code we are about to run
+	 * as well as hooks declared in all loaded modules.
 	 */
-	PUSHMARK(SP);
-	call_sv(pc->pc_sv, G_EVAL|G_VOID|G_DISCARD);
+	pperl_calllist_run(interp->pi_prologue_av, pc->pc_pkgstash,
+			   RUN_PACKAGE_AND_MODULES|STOP_ON_ERROR);
+
+	if (!SvTRUE(ERRSV)) {
+		/*
+		 * Run the code.
+		 */
+		PUSHMARK(SP);
+		call_sv(pc->pc_sv, G_EVAL|G_VOID|G_DISCARD);
+	}
+
+	/*
+	 * Run any epilogue hooks; all hooks will be run, even if an error
+	 * is raised.  The epilogue hooks can inspect the error state using
+	 * the perl $@ variable.
+	 */
+	pperl_calllist_run(interp->pi_epilogue_av, pc->pc_pkgstash,
+			   RUN_PACKAGE_AND_MODULES|CONTINUE_ON_ERROR);
 
 	FREETMPS;
 	LEAVE;
@@ -894,16 +1023,19 @@ pperl_unload(perlcode_t *pcp)
 	 */
 	ENTER;
 	pperl_setvars(pc->pc_name);
-	pperl_calllist_run(PL_endav, pc->pc_pkgstash);
+	pperl_calllist_run(PL_endav, pc->pc_pkgstash, CONTINUE_ON_ERROR);
 	LEAVE;
 
 	/*
-	 * Ensure there are no references to BEGIN, CHECK, or INIT blocks in
-	 * the code's package.
+	 * Remove all references to BEGIN, CHECK, INIT, END, prologue, or
+	 * epilogue blocks in the code's package.
 	 */
 	pperl_calllist_clear(PL_beginav, pc->pc_pkgstash);
 	pperl_calllist_clear(PL_checkav, pc->pc_pkgstash);
 	pperl_calllist_clear(PL_initav, pc->pc_pkgstash);
+	pperl_calllist_clear(PL_endav, pc->pc_pkgstash);
+	pperl_calllist_clear(pc->pc_interp->pi_prologue_av, pc->pc_pkgstash);
+	pperl_calllist_clear(pc->pc_interp->pi_epilogue_av, pc->pc_pkgstash);
 
 	/*
 	 * Perl squirrels away extra references to BEGIN and CHECK blocks.
@@ -938,7 +1070,7 @@ pperl_unload(perlcode_t *pcp)
 	/*
 	 * Remove unique package name from parent package's namespace.
 	 */
-	parentstash = gv_stashpv(PPERL_NAMESPACE, FALSE);
+	parentstash = gv_stashpv(PPERL_NAMESPACE_PRIVATE, FALSE);
 	asprintf(&name, "_p%08X::", pc->pc_pkgid);
 	hv_delete(parentstash, name, strlen(name), G_DISCARD);
 	free(name);
@@ -991,6 +1123,118 @@ XS(XS_pperl_exit)
 	sv_setpv(ERRSV, "");
 	croak(Nullch);
 	LEAVE;
+
+	XSRETURN_EMPTY;
+}
+
+
+/*!
+ * XS_pperl_prologue() - XS extension allowing perl code to register routines
+ *			 to be executed before each run.
+ *
+ *	Called as libpperl::prologue(sub { ... });
+ *
+ *	Pushs the specified code reference onto the end of the prologue call
+ *	list.  The routines in the prologue call list are executed whenever
+ *	pperl_run() is called, and are executed before the loaded code itself
+ *	is run.  Execution halts if any prologue routine dies.
+ *
+ *	Prologue routines registered by perl modules are executed every time
+ *	pperl_run() is called.  Otherwise, only prologue routines registered
+ *	by the code to run are executed.
+ */
+XS(XS_pperl_prologue)
+{
+	perlinterp_t interp;
+	SV *sv;
+	dXSARGS;
+
+	(void)cv;		/* Silence warning about unused parameter. */
+
+	interp = pperl_current_interp();
+	if (interp == NULL)
+		croak("libpperl state corrupt");
+
+	/* We expect a single argument. */
+	if (items != 1)
+		croak("Usage: " PPERL_NAMESPACE_PUBLIC "::prologue(code-ref)");
+
+	/* Pop the argument off perl's call stack. */
+	sv = POPs;
+
+	/* Check that the argument is a valid scalar reference. */
+	if (!SvOK(sv) || !SvROK(sv))
+		croak("Usage: " PPERL_NAMESPACE_PUBLIC "::prologue(code-ref)");
+
+	/* Follow the reference; check that it refered to a code block. */
+	sv = SvRV(sv);
+	if (SvTYPE(sv) != SVt_PVCV)
+		croak("Usage: " PPERL_NAMESPACE_PUBLIC "::prologue(code-ref)");
+
+	/*
+	 * Push a reference to the code block onto the prologue call list.
+	 * We have to increment the reference count because we are holding
+	 * a reference (seems logical).  If we don't any anonymous sub passed
+	 * as a parameter would be immediately garbage collected when it went
+	 * out of scope, invalidating the pointer we pushed onto the list.
+	 */
+	av_push(interp->pi_prologue_av, SvREFCNT_inc(sv));
+
+	XSRETURN_EMPTY;
+}
+
+
+/*!
+ * XS_pperl_epilogue() - XS extension allowing perl code to register routines
+ *			 to be executed after each run.
+ *
+ *	Called as libpperl::epilogue(sub { ... });
+ *
+ *	Adds the specified code reference onto the head of the epilogue call
+ *	list.  The routines in the epilogue call list are executed whenever
+ *	pperl_run() is called, and are executed after the loaded code itself
+ *	is run.  All epilogue routines are always executed, even if the main
+ *	code or prior epilogue routine died; the current error state is
+ *	visible to epilogue routines via the $@ variable.
+ *
+ *	Epilogue routines registered by perl modules are executed every time
+ *	pperl_run() is called.  Otherwise, only epilogue routines registered
+ *	by the code to run are executed.
+ */
+XS(XS_pperl_epilogue)
+{
+	perlinterp_t interp;
+	SV *sv;
+	dXSARGS;
+
+	(void)cv;		/* Silence warning about unused parameter. */
+
+	interp = pperl_current_interp();
+	if (interp == NULL)
+		croak("libpperl state corrupt");
+
+	/* We expect a single argument. */
+	if (items != 1)
+		croak("Usage: " PPERL_NAMESPACE_PUBLIC "::epilogue(code-ref)");
+
+	/* Pop the argument off perl's call stack. */
+	sv = POPs;
+
+	/* Check that the argument is a valid scalar reference. */
+	if (!SvOK(sv) || !SvROK(sv))
+		croak("Usage: " PPERL_NAMESPACE_PUBLIC "::epilogue(code-ref)");
+
+	/* Follow the reference; check that it refered to a code block. */
+	sv = SvRV(sv);
+	if (SvTYPE(sv) != SVt_PVCV)
+		croak("Usage: " PPERL_NAMESPACE_PUBLIC "::epilogue(code-ref)");
+
+	/*
+	 * "Unshift" the reference to the code block onto head of the epilogue
+	 * call list.
+	 */
+	av_unshift(interp->pi_epilogue_av, 1);
+	av_store(interp->pi_epilogue_av, 0, SvREFCNT_inc(sv));
 
 	XSRETURN_EMPTY;
 }

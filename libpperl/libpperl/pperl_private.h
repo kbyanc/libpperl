@@ -37,8 +37,9 @@
  */
 
 
-#define	PPERL_NAMESPACE "libpperl::_private"
-#define	PPERL_IOLAYER	"pperl"
+#define	PPERL_NAMESPACE_PRIVATE	"libpperl::_private"
+#define	PPERL_NAMESPACE_PUBLIC	"libpperl"
+#define	PPERL_IOLAYER		"pperl"
 
 
 /* Macro for removing const poisoning.  Use with extreme caution. */
@@ -59,6 +60,14 @@
  *
  *	@param	pi_perl		The perl interpreter itself.
  *
+ *	@param	pi_prologue_av	Array of subroutine references (call list)
+ *				invoked before any code run inside this
+ *				interpreter.
+ *
+ *	@param	pi_epilogue_av	Array of subroutine references (call list)
+ *				invoked when any code run inside this
+ *				interpreter exits.
+ *
  *	@param	pi_alloc_argv	Memory allocated to hold fake argv passed to
  *				perl_parse(); we have to allocate the fake argv
  *				array on the heap to avoid attempts to modify
@@ -78,6 +87,8 @@
  */
 struct perlinterp {
 	PerlInterpreter		 *pi_perl;
+	AV			 *pi_prologue_av;
+	AV			 *pi_epilogue_av;
 	char			**pi_alloc_argv;
 	LIST_HEAD(, perlargs)	  pi_args_head;
 	LIST_HEAD(, perlcode)	  pi_code_head;
@@ -272,9 +283,23 @@ struct perlio {
 extern void	 pperl_io_init(void);
 extern void	 pperl_io_destroy(perlio_t *piop);
 
+
+/*!
+ *
+ *
+ */
+enum pperl_calllist_flags {
+	RUN_PACKAGE		= 0x00,	/* Default */
+	RUN_PACKAGE_AND_MODULES	= 0x01,
+	RUN_ALL			= 0x02,
+
+	STOP_ON_ERROR		= 0x00,	/* Default */
+	CONTINUE_ON_ERROR	= 0x10
+};
+
+extern void	 pperl_calllist_run(AV *calllist, const HV *pkgstash,
+				    enum pperl_calllist_flags flags);
 extern void	 pperl_calllist_clear(AV *calllist, const HV *pkgstash);
-extern void	 pperl_calllist_run(AV *calllist, const HV *pkgstash);
-extern void	 pperl_calllist_run_all(AV *calllist);
 
 extern void	 pperl_seterr(int errnum, struct perlresult *result);
 
