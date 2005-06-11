@@ -20,14 +20,36 @@ calllist-test.pl: INIT
 calllist-test.pl: BEGIN
 calllist-test.pl: CHECK
 calllist-test.pl: INIT
+CallListTest.pm: prologue(0)
+calllist-test.pl: prologue(0)
 calllist-test.pl: body(0)
-calllist-test.pl: END
+calllist-test.pl: epilogue(0): 
+CallListTest.pm: epilogue(0): 
+calllist-test.pl: END: 0
+CallListTest.pm: prologue(1)
+calllist-test.pl: prologue(1)
 calllist-test.pl: body(1)
-calllist-test.pl: END
+CallListTest.pm: epilogue(1): 
+calllist-test.pl: epilogue(1): 
+calllist-test.pl: END: 0
+CallListTest.pm: prologue(2)
+calllist-test.pl: prologue(2)
 calllist-test.pl: body(2)
-calllist-test.pl: END
+CallListTest.pm: epilogue(2): 
+calllist-test.pl: epilogue(2): 
+calllist-test.pl: END: 0
+calllist-test.pl: prologue(3)
+CallListTest.pm: prologue(3)
 calllist-test.pl: body(3)
-calllist-test.pl: END
+CallListTest.pm: epilogue(3): test die on 3 at (eval 4) line 30.
+
+calllist-test.pl: epilogue(3): test die on 3 at (eval 4) line 30.
+
+calllist-test.pl: END: 0
+CallListTest.pm: prologue(4)
+calllist-test.pl: prologue(4)
 calllist-test.pl: body(4)
-calllist-test.pl: END
-CallListTest.pm: END
+CallListTest.pm: epilogue(4): 
+calllist-test.pl: epilogue(4): 
+calllist-test.pl: END: 0
+CallListTest.pm: END: 0

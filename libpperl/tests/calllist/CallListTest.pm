@@ -15,10 +15,20 @@ INIT {
 	print "CallListTest.pm: INIT1\n";
 }
 
+
+libpperl::prologue(sub {
+	print 'CallListTest.pm: prologue(' . join(', ', @ARGV) . ")\n";
+});
+
+libpperl::epilogue(sub {
+	print 'CallListTest.pm: epilogue(' . join(', ', @ARGV) . "): $@\n";
+});
+
 print 'CallListTest.pm: body(' . join(', ', @ARGV) . ")\n";
 
+
 END {
-	print "CallListTest.pm: END\n";
+	print "CallListTest.pm: END: $?\n";
 }
 
 BEGIN {
