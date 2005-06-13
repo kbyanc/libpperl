@@ -43,6 +43,9 @@
 
 EXTERN_C void	 xs_init _((void));			    /* perlxsi.c */
 
+static bool	 pperl_curdir_save(int *fdp, struct perlresult *result);
+static void	 pperl_curdir_restore(int *fdp);
+
 static perlinterp_t pperl_current_interp(void);
 static void	 pperl_setvars(const char *procname);
 static SV	*pperl_eval(SV *code_sv, const char *name,
@@ -83,6 +86,64 @@ pperl_seterr(int errnum, struct perlresult *result)
 	result->pperl_errno = errnum;
 	result->pperl_errmsg = strerror(errnum); /* XXX Not re-entrant. */
 }
+
+
+/*!
+ * pperl_curdir_save() - Save the current working directory for later
+ *			 restoration.
+ *
+ *	Currently, this implementation just opens the current directory
+ *	so it can later be restored using fchdir(2).  This is not fool-proof
+ *	as the called perl code could close all descriptors, including the
+ *	one we opened for the current directory, making it possible to
+ *	restore the working directory afterwards.
+ *
+ *	If this becomes an issue (i.e. real scripts which close all descriptors
+ *	and change directories), then we need to investigate other solutions.
+ *	Two that come to mind are:
+ *	    * call getcwd(3) to record the current directory path as a string;
+ *	      if fchdir(2) fails, try a chdir(2) using the path recorded by
+ *	      getcwd(3).
+ *	    * keep a helper process which listens on a named local domain
+ *	      socket; open the socket by name and pass the descriptor for the
+ *	      current directory to this helper process.  To restore, re-open
+ *	      the local domain socket by name and request the directory
+ *	      descriptor back.
+ */ 
+bool
+pperl_curdir_save(int *fdp, struct perlresult *result)
+{
+	int fd;
+
+	*fdp = fd = open(".", O_RDONLY);
+	if (fd < 0) {
+		pperl_log(LOG_ERR, "failed to save current directory: %m");
+		pperl_seterr(errno, result);
+		return false;
+	}
+
+	return true;
+}
+
+
+/*!
+ * pperl_curdir_restore() - Restore the current working directory from a
+ *			    previously saved value.
+ */
+void
+pperl_curdir_restore(int *fdp)
+{
+	int fd = *fdp;
+
+	if (fd == -1)
+		return;
+
+	*fdp = -1;
+	if (fchdir(fd) < 0)
+		pperl_log(LOG_ERR, "failed to restore current directory: %m");
+	close(fd);
+}
+
 
 
 /*!
@@ -504,8 +565,13 @@ pperl_load_module(perlinterp_t interp, const char *modulename,
 		  perlenv_t penv, struct perlresult *result)
 {
 	PerlInterpreter *orig_perl;
+	int curdir;
 
 	pperl_result_init(&result);
+
+	/* Save the current directory in case the module code changes it. */
+	if (!pperl_curdir_save(&curdir, result))
+		return;
 
 	orig_perl = PERL_GET_CONTEXT;
 	PERL_SET_CONTEXT(interp->pi_perl);
@@ -558,6 +624,9 @@ pperl_load_module(perlinterp_t interp, const char *modulename,
 	}
 
 	PERL_SET_CONTEXT(orig_perl);
+
+	/* Restore the current directory. */
+	pperl_curdir_restore(&curdir);
 }
 
 
@@ -814,6 +883,11 @@ pperl_load(perlinterp_t interp, const char *name, perlenv_t penv,
 	SV *code_sv;
 	SV *anonsub;
 	HV *pkgstash;
+	int curdir;
+
+	/* Save current directory in case perl code changes it. */
+	if (!pperl_curdir_save(&curdir, result))
+		return NULL;
 
 	/*
 	 * Compile the code in the given interpreter context.
@@ -863,6 +937,7 @@ pperl_load(perlinterp_t interp, const char *name, perlenv_t penv,
 	 */
 	if (anonsub == NULL) {
 		PERL_SET_CONTEXT(orig_perl);
+		pperl_curdir_restore(&curdir);
 		return (NULL);
 	}
 
@@ -891,6 +966,9 @@ pperl_load(perlinterp_t interp, const char *name, perlenv_t penv,
 
 	/* Restore perl context. */
 	PERL_SET_CONTEXT(orig_perl);
+
+	/* Restore current directory. */
+	pperl_curdir_restore(&curdir);
 
 	return (pc);
 }
@@ -922,9 +1000,14 @@ pperl_run(const perlcode_t pc, perlargs_t pargs, perlenv_t penv,
 {
 	const perlinterp_t interp = pc->pc_interp;
 	PerlInterpreter *orig_perl;
+	int curdir;
 	dSP;
 
 	pperl_result_init(&result);
+
+	/* Save current directory in case perl code changes it. */
+	if (!pperl_curdir_save(&curdir, result))
+		return;
 
 	/*
 	 * Save perl's notion of the "current" interpreter and switch to
@@ -982,6 +1065,9 @@ pperl_run(const perlcode_t pc, perlargs_t pargs, perlenv_t penv,
 
 	/* Restore perl's notion of the "current" interpreter. */
 	PERL_SET_CONTEXT(orig_perl);
+
+	/* Restore current directory. */
+	pperl_curdir_restore(&curdir);
 }
 
 
@@ -1011,11 +1097,15 @@ pperl_unload(perlcode_t *pcp)
 	HV *parentstash;
 	HV *pkgstash;
 	SV *sv;
+	int curdir;
 
 	*pcp = NULL;
 
 	orig_perl = PERL_GET_CONTEXT;
 	PERL_SET_CONTEXT(pc->pc_interp->pi_perl);
+
+	/* Save current directory in case an END block changes it. */
+	pperl_curdir_save(&curdir, NULL);
 
 	/*
 	 * Run END blocks now.  It doesn't really matter if they raise an
@@ -1025,6 +1115,9 @@ pperl_unload(perlcode_t *pcp)
 	pperl_setvars(pc->pc_name);
 	pperl_calllist_run(PL_endav, pc->pc_pkgstash, CONTINUE_ON_ERROR);
 	LEAVE;
+
+	/* Restore current directory. */
+	pperl_curdir_restore(&curdir);
 
 	/*
 	 * Remove all references to BEGIN, CHECK, INIT, END, prologue, or
@@ -1060,7 +1153,7 @@ pperl_unload(perlcode_t *pcp)
 	 * package created as a unique namespace for the code to execute in.
 	 */
 	pkgstash = pc->pc_pkgstash;
-	assert (pkgstash == CvSTASH((CV *)sv));
+	assert(pkgstash == CvSTASH((CV *)sv));
 
 	SvREFCNT_dec(pc->pc_sv);
 	assert(SvREFCNT(pc->pc_sv) == 0);
