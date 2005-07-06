@@ -25,7 +25,8 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
- *      $FreeBSD: /repoman/r/ncvs/src/sys/sys/sbuf.h,v 1.14 2004/07/09 11:35:30 des Exp $
+ *      $FreeBSD: src/sys/sys/sbuf.h,v 1.14 2004/07/09 11:35:30 des Exp $
+ *	$NTTMCL$
  */
 
 #ifndef _SYS_SBUF_H_
@@ -73,12 +74,6 @@ int		 sbuf_len(struct sbuf *);
 int		 sbuf_done(struct sbuf *);
 void		 sbuf_delete(struct sbuf *);
 
-#ifdef _KERNEL
-struct uio;
-struct sbuf	*sbuf_uionew(struct sbuf *, struct uio *, int *);
-int		 sbuf_bcopyin(struct sbuf *, const void *, size_t);
-int		 sbuf_copyin(struct sbuf *, const void *, size_t);
-#endif
 __END_DECLS
 
 #endif
