@@ -20,7 +20,6 @@
  */
 
 #include <sys/types.h>
-#include <sys/queue.h>
 
 #include <assert.h>
 #include <stdbool.h>
@@ -35,6 +34,8 @@
 #include <EXTERN.h>
 #include <XSUB.h>
 #include <perl.h>
+
+#include "queue.h"
 
 #include "pperl.h"
 #include "pperl_private.h"

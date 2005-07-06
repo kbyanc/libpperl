@@ -20,7 +20,6 @@
  */
 
 #include <sys/types.h>
-#include <sys/queue.h>
 
 #include <assert.h>
 #include <stdbool.h>
@@ -32,6 +31,8 @@
 #define	HAS_BOOL	/* We use stdbool's bool type rather than perl's. */
 #include <EXTERN.h>
 #include <perl.h>
+
+#include "queue.h"
 
 #include "pperl.h"
 #include "pperl_private.h"
