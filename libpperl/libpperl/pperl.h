@@ -22,9 +22,16 @@
 #ifndef _INCLUDE_LIBPPERL_
 #define _INCLUDE_LIBPPERL_
 
-#include <sys/cdefs.h>
 #include <sys/types.h>
+#include <inttypes.h>		/* For intptr_t */
 #include <stdarg.h>
+
+#if !(__GNUC__ == 2 && __GNUC_MINOR__ >= 7 || __GNUC__ >= 3 || defined(__INTEL_COMPILER))
+#  ifndef __attribute__
+#    define	__attribute__(args)
+#  endif
+#endif
+
 
 /*!
  * @file
@@ -129,8 +136,9 @@ struct perlresult {
 };
 
 
-__BEGIN_DECLS
-
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /*!
  * pperl_result_clear() - Clear contents of perlresult structure.
@@ -233,6 +241,8 @@ extern void		 pperl_fatal(int eval, const char *fmt, ...)
 			     __attribute__ ((noreturn, format (printf, 2, 3)));
 
 
-__END_DECLS
+#ifdef __cplusplus
+}
+#endif
 
 #endif
