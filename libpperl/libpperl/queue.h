@@ -30,8 +30,8 @@
  * $FreeBSD: src/sys/sys/queue.h,v 1.32.2.7 2002/04/17 14:21:02 des Exp $
  */
 
-#ifndef _SYS_QUEUE_H_
-#define	_SYS_QUEUE_H_
+#ifndef _INCLUDE_LIBPPERL_QUEUE_
+#define	_INCLUDE_LIBPPERL_QUEUE_
 
 #include <stddef.h>	/* for offsetof */
 
