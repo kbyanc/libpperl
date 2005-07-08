@@ -64,6 +64,7 @@ AM_CONDITIONAL(SYSTEM_LIBSBUF, test x$system_libsbuf = xtrue)
 #
 AC_HEADER_STDC
 AC_CHECK_HEADERS([fcntl.h stdlib.h string.h syslog.h unistd.h])
+AC_CHECK_HEADERS([sys/cdefs.h])
 
 #
 # Checks for typedefs, structures, and compiler characteristics.
