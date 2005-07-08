@@ -19,6 +19,7 @@
  * $NTTMCL$
  */
 
+#include "pperl_platform.h"
 #include <sys/types.h>
 
 #include <stdarg.h>
@@ -41,7 +42,7 @@ extern void __pperl_log(int priority, const char *fmt, ...)
 		__attribute__ ((format (printf, 2, 3)));
 extern void __pperl_logv(int priority, const char *fmt, va_list ap);
 extern void __pperl_fatal(int eval, const char *fmt, ...)
-		__attribute__ ((format (printf, 2, 3)));
+		__attribute__ ((noreturn, format (printf, 2, 3)));
 
 
 /*!

@@ -29,7 +29,7 @@
  *	$NTTMCL$
  */
 
-#include <sys/cdefs.h>
+#include "pperl_platform.h"
 #include <sys/param.h>
 
 #include <ctype.h>

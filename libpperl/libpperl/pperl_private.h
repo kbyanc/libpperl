@@ -23,8 +23,8 @@
 #define _INCLUDE_LIBPPERL_PRIVATE_
 
 /*
- * Requires <sys/types.h>, <perl.h>, "queue.h", and "pperl.h" to be
- * included before this file.
+ * Requires "pperl_platform.h", <sys/types.h>, <perl.h>, "queue.h", and
+ * "pperl.h" to be included before this file.
  */
 
 

@@ -19,8 +19,7 @@
  * $NTTMCL$
  */
 
-#include <config.h>	/* autoconf */
-
+#include "pperl_platform.h"
 #include <sys/types.h>
 #include <sys/mman.h>
 

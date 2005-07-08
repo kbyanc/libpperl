@@ -19,6 +19,7 @@
  * $NTTMCL$
  */
 
+#include "pperl_platform.h"
 #include <sys/types.h>
 
 #include <assert.h>
