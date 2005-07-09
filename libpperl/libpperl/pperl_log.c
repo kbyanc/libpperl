@@ -38,85 +38,24 @@
 #include "pperl_private.h"
 
 
-extern void __pperl_log(int priority, const char *fmt, ...)
-		__attribute__ ((format (printf, 2, 3)));
-extern void __pperl_logv(int priority, const char *fmt, va_list ap);
-extern void __pperl_fatal(int eval, const char *fmt, ...)
-		__attribute__ ((noreturn, format (printf, 2, 3)));
+static void __pperl_fatal(int eval, const char *fmt, va_list ap);
+
+void (*pperl_log_callback)(int, const char *, va_list) = vsyslog;
+void (*pperl_fatal_callback)(int, const char *, va_list) = __pperl_fatal;
 
 
 /*!
- * @fn pperl_log(int priority, const char *fmt, ...)
- *
  * pperl_log() - Log a message.
  *
- *	This is an interval interface called by libpperl to log messages.
+ *	This is an internal interface called by libpperl to log messages.
  *	The \a priority parameter specifies the severity of the message, the
  *	acceptable values are identical to those defined by syslog(3).
  *	The \a fmt string is identical to a printf()-style format string
  *	except that '%m' is expected to be replaced by an error message
  *	correponding to the current value of the errno global variable.
- *
- *	@note	pperl_log() is actually a weak linker symbol which references
- *		__pperl_log() by default.  If program linked against
- *		libpperl defines its own pperl_log() routine, the linker
- *		will cause the symbol to be remapped to that implementation
- *		instead.
- */
-__weak_reference(__pperl_log, pperl_log);
-
-
-/*!
- * @fn pperl_logv(int priority, const char *fmt, va_args ap)
- *
- * pperl_logv() - Log a message using stdarg(3) argument list.
- *
- *	This routine is identical to pperl_log() except that the arguments
- *	are taken from the given stdarg(3) argument list.  This routine is
- *	never called directly in libpperl, but rather is called by the
- *	default implementations of pperl_log() and pperl_fatal().
- *
- *	@note	pperl_logv() is actually a weak linker symbol which references
- *		__pperl_logv() by default.  If program linked against
- *		libpperl defines its own pperl_logv() routine, the linker
- *		will cause the symbol to be remapped to that implementation
- *		instead.  Since the default pperl_log() and pperl_fatal()
- *		implementations call pperl_logv() to do the actual logging,
- *		overriding pperl_logv() allows the application to define the
- *		logging behavior of libpperl.
- */
-__weak_reference(__pperl_logv, pperl_logv);
-
-
-/*!
- * @fn pperl_fatal(int eval, const char *fmt, ...)
- *
- * pperl_fatal() - Log a message recording a critical condition and exit.
- *
- *	This is an internal interface called by libpperl whenever a critical
- *	condition occurs that precludes the program from continuing (usually
- *	an out-of-memory condition).  It is always called with the global
- *	errno variable set to the cause of the critical condition.
- *	The \a eval argument is the recommended exit code, as defined in
- *	<sysexits.h>; the remaining arguments are a printf()-style format
- *	string and argument list.
- *
- *	@note	pperl_fatal() is actually a weak linker symbol which references
- *		__pperl_fatal() by default.  If program linked against
- *		libpperl defines its own pperl_fatal() routine, the linker
- *		will cause the symbol to be remapped to that implementation
- *		instead.
- */
-__weak_reference(__pperl_fatal, pperl_fatal);
-
-
-/*!
- * __pperl_log() - Default wrapper for pperl_logv().
- *
- *	@see pperl_log(), pperl_logv()
  */
 void
-__pperl_log(int priority, const char *fmt, ...)
+pperl_log(int priority, const char *fmt, ...)
 {
 	va_list ap;
 
@@ -127,15 +66,44 @@ __pperl_log(int priority, const char *fmt, ...)
 
 
 /*!
- * __pperl_logv() - Default logging implementation using vsyslog(3).
+ * pperl_logv() - Log a message using stdarg(3) argument list.
  *
- *	@see pperl_logv()
+ *	This routine is identical to pperl_log() except that the arguments
+ *	are taken from the given stdarg(3) argument list.  This routine is
+ *	never called directly in libpperl, but rather is called by the
+ *	default implementations of pperl_log() and pperl_fatal().
  */
 void
-__pperl_logv(int priority, const char *fmt, va_list ap)
+pperl_logv(int priority, const char *fmt, va_list ap)
 {
-	vsyslog(priority, fmt, ap);
+	pperl_log_callback(priority, fmt, ap);
 }
+
+
+/*!
+ * pperl_fatal() - Log a message recording a critical condition and exit.
+ *
+ *	This is an internal interface called by libpperl whenever a critical
+ *	condition occurs that precludes the program from continuing (usually
+ *	an out-of-memory condition).  It is always called with the global
+ *	errno variable set to the cause of the critical condition.
+ *	The \a eval argument is the recommended exit code, as defined in
+ *	<sysexits.h>; the remaining arguments are a printf()-style format
+ *	string and argument list.
+ */
+void
+pperl_fatal(int eval, const char *fmt, ...)
+{
+	va_list ap;
+
+	va_start(ap, fmt);
+	pperl_fatal_callback(eval, fmt, ap);
+	va_end(ap);
+
+	/* Just in case the callback didn't do it itself. */
+	exit(eval);
+}
+
 
 
 /*!
@@ -148,15 +116,8 @@ __pperl_logv(int priority, const char *fmt, va_list ap)
  *	@see pperl_fatal(), pperl_logv()
  */
 void
-__pperl_fatal(int eval, const char *fmt, ...)
+__pperl_fatal(int eval, const char *fmt, va_list ap)
 {
-	va_list ap;
-
-	va_start(ap, fmt);
 	pperl_logv(LOG_CRIT, fmt, ap);
-	va_end(ap);
-
 	exit(eval);
 }
-
-

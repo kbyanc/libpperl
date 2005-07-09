@@ -307,4 +307,10 @@ extern void	*pperl_malloc(size_t size);
 extern void	*pperl_realloc(void *ptr, size_t size);
 extern char	*pperl_strdup(const char *str);
 
+extern void	 pperl_log(int priority, const char *fmt, ...)
+			__attribute__ ((format (printf, 2, 3)));
+extern void	 pperl_logv(int priority, const char *fmt, va_list ap);
+extern void	 pperl_fatal(int eval, const char *fmt, ...)
+			__attribute__ ((noreturn, format (printf, 2, 3)));
+
 #endif

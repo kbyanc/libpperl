@@ -70,6 +70,33 @@ typedef struct perlcode *perlcode_t;
 
 
 /*!
+ * pperl_log_callback() - Log a message using stdarg(3) argument list.
+ *      
+ *      Pointer to function called by libpperl to log messages.
+ *      The \a priority parameter specifies the severity of the message, the
+ *      acceptable values are identical to those defined by syslog(3). 
+ *      The \a fmt string is identical to a printf()-style format string
+ *      except that '%m' is expected to be replaced by an error message
+ *      correponding to the current value of the errno global variable.
+ */
+extern void (*pperl_log_callback)(int, const char *, va_list);
+
+/*!
+ * pperl_fatal_callback() - Recording a critical condition and exit.
+ *
+ *	Pointer to function called by libpperl whenever a critical condition
+ *	occurs that precludes the program from continuing (usually
+ *	an out-of-memory condition).  It is always called with the global
+ *	errno variable set to the cause of the critical condition.
+ *	The \a eval argument is the recommended exit code, as defined in
+ *	<sysexits.h>; the remaining arguments are a printf()-style format
+ *	string and argument list.  The implemention *must* not return as
+ *	the caller has encountered at fatal error.
+ */
+extern void (*pperl_fatal_callback)(int, const char *, va_list);
+
+
+/*!
  * Flags used to specify the behavior of an interpreter created by
  * pperl_new().  WARNINGS_* options are mutually-exclusive (that is, only
  * zero or one option from that group of flags should be specified).
@@ -226,20 +253,6 @@ extern perlcode_t	 pperl_load_file(perlinterp_t interp, const char *path,
 extern perlcode_t	 pperl_load_fd(perlinterp_t interp, const char *name,
 				       perlenv_t penv, int fd,
 				       struct perlresult *result);
-
-
-/*
- * Internal logging routines for libpperl.
- * These all are defined as weak linker symbols in the library, allowing
- * applications to replace them with their own implementations.  Hence, we
- * export the declarations.
- */
-extern void		 pperl_log(int priority, const char *fmt, ...)
-			     __attribute__ ((format (printf, 2, 3)));
-extern void		 pperl_logv(int priority, const char *fmt, va_list ap);
-extern void		 pperl_fatal(int eval, const char *fmt, ...)
-			     __attribute__ ((noreturn, format (printf, 2, 3)));
-
 
 #ifdef __cplusplus
 }
