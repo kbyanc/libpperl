@@ -663,6 +663,13 @@ pperl_setvars(const char *procname)
 	sv_setpv(ERRSV, "");
 
 	/*
+	 * Reset $/ to the default value of "\n".
+	 * XXX Need a generic way to save/restore all of perl's magic
+	 *     single-character variables.
+	 */
+	sv_setpvn(GvSV(gv_fetchpv("/", TRUE, SVt_PV)), "\n", 1);
+
+	/*
 	 * Set $0 (and hence the process's name as it appears in ps output)
 	 * to the name associated with the perl code being run.  Localize
 	 * $0 so that the process name will be restored automatically when
@@ -1050,6 +1057,10 @@ pperl_run(const perlcode_t pc, perlargs_t pargs, perlenv_t penv,
 	 */
 	pperl_calllist_run(interp->pi_epilogue_av, pc->pc_pkgstash,
 			   RUN_PACKAGE_AND_MODULES|CONTINUE_ON_ERROR);
+
+
+	/* Flush any pending output. */
+	PerlIO_flush(PerlIO_stdout());
 
 	FREETMPS;
 	LEAVE;
