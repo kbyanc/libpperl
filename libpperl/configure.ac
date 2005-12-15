@@ -18,6 +18,18 @@ AC_PROG_LIBTOOL
 AC_SUBST(LIBTOOL_DEPS)
 
 #
+# Determine the operating system.
+# Currently, Linux is our only oddball so we just check for that.
+#
+case "${host_os}" in
+    *linux*)
+	AM_CONDITIONAL(IS_LINUX, true)
+	;;
+    *)
+	AM_CONDITIONAL(IS_LINUX, false)
+esac
+
+#
 # Checks for programs.
 #
 AC_PROG_CC
