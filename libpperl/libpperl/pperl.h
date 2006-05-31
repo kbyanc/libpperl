@@ -200,6 +200,10 @@ extern perlenv_t	 pperl_env_new(perlinterp_t interp, bool tainted,
 				       int envc, const char **envp);
 extern void		 pperl_env_set(perlenv_t penv, const char *name,
 				       const char *value);
+extern void		 pperl_env_setf(perlenv_t penv, const char *name,
+					const char *fmt, ...);
+extern void		 pperl_env_setv(perlenv_t penv, const char *name,
+					const char *fmt, va_list ap);
 extern const char	*pperl_env_get(const perlenv_t penv,
 				       const char *name);
 extern void		 pperl_env_unset(perlenv_t penv, const char *name);

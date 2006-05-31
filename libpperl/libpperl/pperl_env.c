@@ -69,8 +69,7 @@
  *
  */
 perlenv_t
-pperl_env_new(perlinterp_t interp, bool tainted, int envc,
-		  const char **envp)
+pperl_env_new(perlinterp_t interp, bool tainted, int envc, const char **envp)
 {
 	PerlInterpreter *orig_perl;
 	perlenv_t penv;
@@ -160,6 +159,59 @@ pperl_env_set(perlenv_t penv, const char *name, const char *value)
 	hv_store(penv->pe_envhash, name, namelen, val_sv, 0);
 
 	PERL_SET_CONTEXT(orig_perl);
+}
+
+
+/*!
+ * pperl_env_setf() - Add or update a perl environment variable with a value
+ *		      constructed from a printf(3)-style format specifier.
+ *
+ *	@param	penv		Perl environment variable list to update.
+ *
+ *	@param	name		Name of environment variable.
+ *
+ *	@param	fmt		printf(3)-style format string which specifies
+ *				how to construct the environment variable's
+ *				value from the remaining arguments.
+ */
+void
+pperl_env_setf(perlenv_t penv, const char *name, const char *fmt, ...)
+{
+	va_list ap;
+
+	va_start(ap, fmt);
+	pperl_env_setv(penv, name, fmt, ap);
+	va_end(ap);
+}
+
+
+/*!
+ * pperl_env_setv() - Add or update a perl environment variable with a value
+ *		      constructed from a printf(3)-style format specifier and
+ *		      an stdarg argument list.
+ *
+ *	@param	penv		Perl environment variable list to update.
+ *
+ *	@param	name		Name of environment variable.
+ *
+ *	@param	fmt		printf(3)-style format string which specifies
+ *				how to construct the environment variable's
+ *				value.
+ *
+ *	@param	ap		stdarg(3) variable-length argument list to
+ *				be formatted.
+ */
+void
+pperl_env_setv(perlenv_t penv, const char *name, const char *fmt, va_list ap)
+{
+	char *value;
+
+	vasprintf(&value, fmt, ap);
+	if (value == NULL)
+		pperl_fatal(EX_OSERR, "malloc: %m");
+
+	pperl_env_set(penv, name, value);
+	free(value);
 }
 
 
