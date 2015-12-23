@@ -1,5 +1,3 @@
-# $NTTMCL$
-
 if !IS_LINUX
 pkgconfigdir=		$(exec_prefix)/libdata/pkgconfig
 else

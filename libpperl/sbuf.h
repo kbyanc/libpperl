@@ -26,7 +26,6 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  *      $FreeBSD: src/sys/sys/sbuf.h,v 1.14 2004/07/09 11:35:30 des Exp $
- *	$NTTMCL$
  */
 
 #ifndef _SYS_SBUF_H_

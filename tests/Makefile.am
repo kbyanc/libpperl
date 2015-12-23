@@ -1,4 +1,3 @@
-# $NTTMCL$
 
 SUBDIRS=	args \
 		calllist

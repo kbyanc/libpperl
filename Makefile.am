@@ -1,0 +1,3 @@
+
+SUBDIRS=	libpperl pkgconfig
+

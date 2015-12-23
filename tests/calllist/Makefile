@@ -1,6 +1,3 @@
-#
-# $NTTMCL$
-#
 
 CFLAGS=		-I../../libpperl -Wall -W -O0 -g
 LDFLAGS=	-L../../libpperl/.libs

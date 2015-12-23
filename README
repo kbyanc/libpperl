@@ -1,4 +1,3 @@
-# $NTTMCL$
 
   libpperl - Routines for maintaining one (or more) persistent perl
 	     interpreters.
@@ -58,10 +57,3 @@ package subdirectory.  It will checkout the latest sources from CVS,
 build the configure script and Makefiles, and tar them all up into a
 ready-to-distribute tar-ball in the current directory.
 
-AUTHORS
-=========
-
-	Kelly Yancey <kelly@nttmcl.com>, <kbyanc@posi.net>
-
-  Please send any bug reports, patches, etc. to Kelly Yancey at one of the
-e-mail addresses listed above.

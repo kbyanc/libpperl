@@ -26,7 +26,6 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  *	$FreeBSD: src/sys/kern/subr_sbuf.c,v 1.29 2005/02/10 12:02:37 phk Exp $
- *	$NTTMCL$
  */
 
 #include "pperl_platform.h"

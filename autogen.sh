@@ -5,8 +5,6 @@
 # as needed during development and during packaging (see also
 # package/make-distfile).
 #
-# $NTTMCL$
-#
 
 if [ "X$1" = "Xclean" ]; then
 	rm -f configure aclocal.m4 install-sh missing config.guess config.sub
